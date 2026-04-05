@@ -101,6 +101,10 @@ let
 
       wait_for_pods
 
+      echo "Creating namespace 'brute'..."
+      $KUBECTL create namespace brute 2>/dev/null || true
+      $KUBECTL config set-context --current --namespace=brute 2>/dev/null
+
       deploy_app "$@"
 
       echo ""
@@ -223,10 +227,11 @@ let
     export BUNDLE_PATH=vendor/bundle
     bundle install --quiet 2>/dev/null
 
-    # Write kubeconfig if cluster is running
+    # Write kubeconfig if cluster is running and set brute namespace
     if ${pkgs.k3d}/bin/k3d cluster list 2>/dev/null | grep -q "${clusterName}"; then
       ${pkgs.k3d}/bin/k3d kubeconfig get ${clusterName} > ${kubeconfigPath} 2>/dev/null
-      CLUSTER_STATUS="connected"
+      env KUBECONFIG=${kubeconfigPath} ${pkgs.kubectl}/bin/kubectl config set-context --current --namespace=brute 2>/dev/null
+      CLUSTER_STATUS="connected (namespace: brute)"
     else
       CLUSTER_STATUS="not running (run: cluster up)"
     fi

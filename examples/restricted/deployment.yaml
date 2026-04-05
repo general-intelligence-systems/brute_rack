@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: brute-research
-  namespace: default
+  namespace: brute
   labels:
     app: brute-research
 spec:
@@ -70,7 +70,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: brute-research
-  namespace: default
+  namespace: brute
 spec:
   selector:
     app: brute-research
@@ -84,7 +84,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: brute-secrets
-  namespace: default
+  namespace: brute
 type: Opaque
 stringData:
   anthropic-api-key: "REPLACE_ME"
