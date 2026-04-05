@@ -12,21 +12,18 @@ require "falcon"
 service "research" do
   include Async::Service::Managed::Environment
 
-  def service_class = Falcon::Service::Server
-  def port = ENV.fetch("PORT", 9292).to_i
-  def cwd = ENV.fetch("BRUTE_CWD", "/srv/research")
-  def tools = [Brute::Tools::FSRead, Brute::Tools::FSSearch, Brute::Tools::NetFetch, Brute::Tools::TodoRead, Brute::Tools::TodoWrite]
-  def reasoning = { level: :high }
-  def compactor_opts = { token_threshold: 50_000 }
+  service_class Falcon::Service::Server
+  port ENV.fetch("PORT", 9292).to_i
 
-  def endpoint
+  endpoint do
     Async::HTTP::Endpoint.parse("http://0.0.0.0:#{port}")
   end
 
-  def make_server
+  make_server do
+    tools = [Brute::Tools::FSRead, Brute::Tools::FSSearch, Brute::Tools::NetFetch, Brute::Tools::TodoRead, Brute::Tools::TodoWrite]
     app = BruteRack::App.new(
-      cwd: cwd,
-      agent_options: { tools: tools, reasoning: reasoning, compactor_opts: compactor_opts },
+      cwd: ENV.fetch("BRUTE_CWD", "/srv/research"),
+      agent_options: { tools: tools, reasoning: { level: :high }, compactor_opts: { token_threshold: 50_000 } },
     )
     Falcon::Server.new(Falcon::Server.middleware(app), endpoint)
   end
