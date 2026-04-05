@@ -57,15 +57,17 @@ let
         return 0
       fi
 
-      TARGET_PORT=$($KUBECTL get svc "$SVC_NAME" --namespace=brute -o jsonpath='{.spec.ports[0].targetPort}' 2>/dev/null)
-      TARGET_PORT=''${TARGET_PORT:-9292}
+      SVC_PORT=$($KUBECTL get svc "$SVC_NAME" --namespace=brute -o jsonpath='{.spec.ports[0].port}' 2>/dev/null)
+      SVC_PORT=''${SVC_PORT:-80}
+      LOCAL_PORT=$($KUBECTL get svc "$SVC_NAME" --namespace=brute -o jsonpath='{.spec.ports[0].targetPort}' 2>/dev/null)
+      LOCAL_PORT=''${LOCAL_PORT:-9292}
 
-      nohup $KUBECTL port-forward svc/$SVC_NAME --namespace=brute $TARGET_PORT:$TARGET_PORT >/dev/null 2>&1 &
+      nohup $KUBECTL port-forward svc/$SVC_NAME --namespace=brute $LOCAL_PORT:$SVC_PORT >/dev/null 2>&1 &
       echo $! > "$PF_PIDFILE"
       sleep 1
 
       if kill -0 $(cat "$PF_PIDFILE") 2>/dev/null; then
-        echo "Forwarding http://localhost:$TARGET_PORT -> svc/$SVC_NAME"
+        echo "Forwarding http://localhost:$LOCAL_PORT -> svc/$SVC_NAME:$SVC_PORT"
       else
         echo "warning: port-forward failed to start" >&2
         rm -f "$PF_PIDFILE"
@@ -344,11 +346,13 @@ let
       else
         SVC_NAME=$(env KUBECONFIG=${kubeconfigPath} ${pkgs.kubectl}/bin/kubectl get svc --namespace=brute -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
         if [ -n "$SVC_NAME" ]; then
-          TARGET_PORT=$(env KUBECONFIG=${kubeconfigPath} ${pkgs.kubectl}/bin/kubectl get svc "$SVC_NAME" --namespace=brute -o jsonpath='{.spec.ports[0].targetPort}' 2>/dev/null)
-          TARGET_PORT=''${TARGET_PORT:-9292}
-          nohup env KUBECONFIG=${kubeconfigPath} ${pkgs.kubectl}/bin/kubectl port-forward svc/$SVC_NAME --namespace=brute $TARGET_PORT:$TARGET_PORT >/dev/null 2>&1 &
+          SVC_PORT=$(env KUBECONFIG=${kubeconfigPath} ${pkgs.kubectl}/bin/kubectl get svc "$SVC_NAME" --namespace=brute -o jsonpath='{.spec.ports[0].port}' 2>/dev/null)
+          SVC_PORT=''${SVC_PORT:-80}
+          LOCAL_PORT=$(env KUBECONFIG=${kubeconfigPath} ${pkgs.kubectl}/bin/kubectl get svc "$SVC_NAME" --namespace=brute -o jsonpath='{.spec.ports[0].targetPort}' 2>/dev/null)
+          LOCAL_PORT=''${LOCAL_PORT:-9292}
+          nohup env KUBECONFIG=${kubeconfigPath} ${pkgs.kubectl}/bin/kubectl port-forward svc/$SVC_NAME --namespace=brute $LOCAL_PORT:$SVC_PORT >/dev/null 2>&1 &
           echo $! > ${portForwardPidFile}
-          PF_PORT="$TARGET_PORT (restarted)"
+          PF_PORT="$LOCAL_PORT (restarted)"
         fi
       fi
     else
