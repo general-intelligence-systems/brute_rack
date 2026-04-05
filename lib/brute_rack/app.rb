@@ -19,11 +19,11 @@ module BruteRack
       [405, {"content-type" => "application/json"}, ['{"error":"method not allowed"}']]
     end
 
-    def initialize(cwd: Dir.pwd)
+    def initialize(cwd: Dir.pwd, agent_options: {})
       @cwd = cwd
       @logger = Logger.new($stderr, level: Logger::INFO)
       @event_bus = EventBus.new
-      @registry = SessionRegistry.new(event_bus: @event_bus, cwd: cwd)
+      @registry = SessionRegistry.new(event_bus: @event_bus, cwd: cwd, agent_options: agent_options)
     end
 
     def call(env)

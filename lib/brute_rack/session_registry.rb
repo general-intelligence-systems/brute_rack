@@ -11,9 +11,10 @@ module BruteRack
   class SessionRegistry
     STATUSES = %i[idle running completed errored].freeze
 
-    def initialize(event_bus:, cwd: Dir.pwd)
+    def initialize(event_bus:, cwd: Dir.pwd, agent_options: {})
       @event_bus = event_bus
       @cwd = cwd
+      @agent_options = agent_options
       @sessions = {}  # id => { orchestrator:, status:, session: }
       @mutex = Mutex.new
     end
@@ -84,10 +85,11 @@ module BruteRack
     private
 
     def build_entry(id, cwd)
-      session = Brute::Session.new(id: id)
+      session = Brute::Session.new(id: id, dir: @agent_options[:session_dir])
       orch = Brute.agent(
         cwd: cwd,
         session: session,
+        **@agent_options.except(:session_dir),
         on_content: ->(text) {
           @event_bus.publish(type: "content.delta", session_id: id, data: { text: text }) if text
         },

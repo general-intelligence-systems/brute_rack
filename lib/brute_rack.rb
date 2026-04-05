@@ -14,8 +14,10 @@ module BruteRack
     HEADERS_JSON = BruteRack::HEADERS_JSON
   end
 
+  module Service; end
+
   def self.config_ru_path
-    File.expand_path("../config.ru", __dir__)
+    File.expand_path("../examples/config.ru", __dir__)
   end
 end
 
@@ -23,6 +25,14 @@ end
 require_relative "brute_rack/sse"
 require_relative "brute_rack/event_bus"
 require_relative "brute_rack/session_registry"
+
+# Service (async-service integration — loaded only when async-service is available)
+begin
+  require "async/service"
+  require_relative "brute_rack/service/agent_service"
+rescue LoadError
+  # async-service not installed — AgentService unavailable, use rackup instead
+end
 
 # Endpoints (OpenCode-compatible API)
 require_relative "brute_rack/endpoints/global"

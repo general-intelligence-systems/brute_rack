@@ -3,56 +3,25 @@
 
 # Start the Brute HTTP server.
 #
-#   brute-server                              # localhost:9292
-#   brute-server --port 3000                  # custom port
-#   brute-server --host 0.0.0.0 --port 8080  # bind all interfaces
-#   brute-server --server falcon              # use Falcon (requires gem install falcon)
+#   brute-server                          # Run default examples/service.rb
+#   brute-server my_service.rb            # Run a custom service config
+#   brute-server examples/restricted.rb   # Run the restricted example
 #
-# Defaults to rackup (WEBrick). Use --server falcon for async/SSE streaming.
+# With async-service installed (recommended):
+#   Uses async-service to manage the process lifecycle.
+#
+# Without async-service (fallback):
+#   Uses rackup + WEBrick with examples/config.ru.
 
-require "brute_rack"
-require "optparse"
+config = ARGV.shift || File.expand_path("../examples/service.rb", __dir__)
 
-options = { host: "127.0.0.1", port: 9292, server: nil }
-
-OptionParser.new do |opts|
-  opts.banner = "Usage: brute-server [options]"
-  opts.on("-H", "--host HOST", "Hostname (default: 127.0.0.1)")  { |h| options[:host] = h }
-  opts.on("-p", "--port PORT", Integer, "Port (default: 9292)")   { |p| options[:port] = p }
-  opts.on("-s", "--server NAME", "Rack server (falcon, puma, webrick)") { |s| options[:server] = s }
-  opts.on("-v", "--version", "Show version") { puts "brute-server #{Brute::VERSION}"; exit }
-  opts.on("-h", "--help", "Show help")       { puts opts; exit }
-end.parse!
-
-config_ru = BruteRack.config_ru_path
-
-$stderr.puts "brute-server #{Brute::VERSION}"
-$stderr.puts "  Listening on http://#{options[:host]}:#{options[:port]}"
-$stderr.puts "  Config: #{config_ru}"
-$stderr.puts
-
-if options[:server]
-  # Use specified server via rackup
+begin
+  require "async/service"
+  $stderr.puts "brute-server: #{config}"
+  exec("async-service", config, *ARGV)
+rescue LoadError
+  $stderr.puts "brute-server: async-service not found, falling back to rackup"
+  require "brute_rack"
   require "rackup"
-  Rackup::Server.start(
-    config: config_ru,
-    Host: options[:host],
-    Port: options[:port],
-    server: options[:server],
-  )
-else
-  # Default: try falcon, fall back to rackup/webrick
-  begin
-    require "falcon"
-    exec("falcon", "serve",
-      "--bind", "http://#{options[:host]}:#{options[:port]}",
-      "--config", config_ru)
-  rescue LoadError
-    require "rackup"
-    Rackup::Server.start(
-      config: config_ru,
-      Host: options[:host],
-      Port: options[:port],
-    )
-  end
+  Rackup::Server.start(config: BruteRack.config_ru_path, Port: 9292)
 end
