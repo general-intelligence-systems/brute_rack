@@ -7,6 +7,9 @@
 #   async-service service.rb
 
 require "brute_rack"
+require "async/service"
+require "async/service/managed/environment"
+require "async/service/managed/service"
 require "async/http"
 require "falcon"
 
