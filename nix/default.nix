@@ -2,10 +2,9 @@
 #
 # Provides:
 #   - Ruby + bundler for running the agent
-#   - kubectl + helm for Kubernetes
-#   - kubectl wrapper that automatically uses the cluster kubeconfig
+#   - k3d + kubectl + helm for local Kubernetes
+#   - kubectl wrapper that automatically uses the k3d kubeconfig
 #   - Single `cluster` command: cluster {up,down,status,redeploy,undeploy,load,logs,forward}
-#   - k3s cluster image built via streamLayeredImage (no k3d dependency)
 #
 # Usage as a flake input:
 #
@@ -18,40 +17,23 @@
 
 let
   clusterName = "brute";
-  containerName = "brute-k3s";
-  kubeconfigPath = "/tmp/${clusterName}-kubeconfig.yaml";
-  imageName = "brute-k3s:latest";
+  kubeconfigPath = "/tmp/k3d-${clusterName}-kubeconfig.yaml";
 
-  # kubectl wrapper — automatically uses the cluster kubeconfig.
+  # kubectl wrapper — automatically uses the k3d kubeconfig.
   kubectl = pkgs.writeShellScriptBin "kubectl" ''
     if [ -f "${kubeconfigPath}" ]; then
       exec env KUBECONFIG="${kubeconfigPath}" ${pkgs.kubectl}/bin/kubectl "$@"
     else
-      echo "No cluster kubeconfig found. Run: cluster up" >&2
+      echo "No k3d kubeconfig found. Run: cluster up" >&2
       exit 1
     fi
   '';
 
   cluster = pkgs.writeShellScriptBin "cluster" ''
+    K3D="${pkgs.k3d}/bin/k3d"
     KUBECTL="env KUBECONFIG=${kubeconfigPath} ${pkgs.kubectl}/bin/kubectl"
-    CONTAINER="${containerName}"
+    CLUSTER="${clusterName}"
     KUBECONFIG_FILE="${kubeconfigPath}"
-    IMAGE="${imageName}"
-    NIX_DIR="$(dirname "$(readlink -f "$0")")/../../../nix"
-
-    wait_for_k3s() {
-      echo "Waiting for k3s..."
-      local i=0
-      while ! docker exec $CONTAINER kubectl get nodes 2>/dev/null | grep -q " Ready"; do
-        i=$((i + 1))
-        if [ $i -gt 60 ]; then
-          echo "error: k3s failed to start within 120s" >&2
-          docker logs $CONTAINER --tail 20 2>&1
-          return 1
-        fi
-        sleep 2
-      done
-    }
 
     wait_for_pods() {
       echo "Waiting for pods..."
@@ -89,10 +71,9 @@ let
         return 1
       fi
 
-      echo "Loading app image into k3s..."
-      docker save brute-local:latest | docker exec -i $CONTAINER ctr images import -
+      echo "Loading image into k3d..."
+      $K3D image import brute-local:latest --cluster $CLUSTER
 
-      # Create secret from LLM_API_KEY env var
       if [ -n "''${LLM_API_KEY:-}" ]; then
         echo "Creating secret from LLM_API_KEY..."
         $KUBECTL create secret generic brute-secrets \
@@ -107,7 +88,6 @@ let
       echo "Applying $DEPLOYMENT..."
       $KUBECTL apply -f "$DEPLOYMENT"
 
-      # Stream pod logs during rollout
       sleep 2
       $KUBECTL logs -f -l app --namespace=brute --all-containers --ignore-errors 2>/dev/null &
       LOG_PID=$!
@@ -128,52 +108,24 @@ let
         exit 1
       fi
 
-      # Check if container already exists
-      if docker ps --format '{{.Names}}' | grep -q "^$CONTAINER$"; then
-        echo "Cluster '$CONTAINER' already running"
-        docker exec $CONTAINER cat /etc/rancher/k3s/k3s.yaml 2>/dev/null \
-          | sed "s|127.0.0.1|127.0.0.1|" > "$KUBECONFIG_FILE"
+      if $K3D cluster list 2>/dev/null | grep -q "$CLUSTER"; then
+        echo "Cluster '$CLUSTER' already exists"
+        $K3D kubeconfig get $CLUSTER > "$KUBECONFIG_FILE" 2>/dev/null
         $KUBECTL config set-context --current --namespace=brute 2>/dev/null
         echo "kubectl configured"
         exit 0
       fi
 
-      # Remove stopped container if it exists
-      docker rm -f $CONTAINER 2>/dev/null
+      echo "Creating k3d cluster '$CLUSTER'..."
+      $K3D cluster create $CLUSTER \
+        --wait \
+        --timeout 120s \
+        --agents 0 \
+        --no-lb \
+        --k3s-arg "--disable=traefik@server:0" \
+        --k3s-arg "--disable=metrics-server@server:0"
 
-      # Build k3s image if not loaded
-      if ! docker image inspect $IMAGE >/dev/null 2>&1; then
-        echo "Building k3s cluster image (first time only)..."
-        # Find the flake dir — walk up from the current dir looking for nix/flake.nix
-        FLAKE_DIR=""
-        CHECK_DIR="$PWD"
-        while [ "$CHECK_DIR" != "/" ]; do
-          if [ -f "$CHECK_DIR/nix/flake.nix" ]; then
-            FLAKE_DIR="$CHECK_DIR/nix"
-            break
-          fi
-          CHECK_DIR="$(dirname "$CHECK_DIR")"
-        done
-
-        if [ -z "$FLAKE_DIR" ]; then
-          echo "error: Cannot find nix/flake.nix to build cluster image" >&2
-          exit 1
-        fi
-
-        nix build "$FLAKE_DIR#cluster-image" --no-link --print-out-paths | xargs -I{} sh -c 'cat {} | docker load'
-      fi
-
-      echo "Starting k3s cluster..."
-      docker run -d --privileged \
-        --name $CONTAINER \
-        -p 6443:6443 \
-        $IMAGE
-
-      wait_for_k3s || exit 1
-
-      # Extract kubeconfig
-      docker exec $CONTAINER cat /etc/rancher/k3s/k3s.yaml \
-        | sed "s|127.0.0.1|127.0.0.1|" > "$KUBECONFIG_FILE"
+      $K3D kubeconfig get $CLUSTER > "$KUBECONFIG_FILE" 2>/dev/null
 
       echo "Waiting for nodes..."
       $KUBECTL wait --for=condition=Ready nodes --all --timeout=120s 2>/dev/null
@@ -191,13 +143,13 @@ let
       echo ""
       $KUBECTL get svc --namespace=brute 2>/dev/null
       echo ""
-      echo "Cluster is ready"
+      echo "Cluster '$CLUSTER' is ready"
     }
 
     cmd_down() {
-      docker rm -f $CONTAINER 2>/dev/null
+      $K3D cluster delete $CLUSTER 2>/dev/null
       rm -f "$KUBECONFIG_FILE"
-      echo "Cluster deleted"
+      echo "Cluster '$CLUSTER' deleted"
     }
 
     cmd_load() {
@@ -205,13 +157,13 @@ let
         echo "Usage: cluster load <image:tag>"
         exit 1
       fi
-      docker save "$1" | docker exec -i $CONTAINER ctr images import -
-      echo "Loaded $1 into cluster"
+      $K3D image import "$1" --cluster $CLUSTER
+      echo "Loaded $1 into cluster '$CLUSTER'"
     }
 
     cmd_status() {
-      echo "=== Container ==="
-      docker ps --filter "name=$CONTAINER" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" 2>/dev/null
+      echo "=== Cluster ==="
+      $K3D cluster list 2>/dev/null
       echo
       echo "=== Nodes ==="
       $KUBECTL get nodes 2>/dev/null || echo "(not running)"
@@ -299,6 +251,7 @@ let
     pkgs.git
     pkgs.bash
     pkgs.docker
+    pkgs.k3d
     kubectl
     pkgs.kubernetes-helm
     cluster
@@ -308,10 +261,8 @@ let
     export BUNDLE_PATH=vendor/bundle
     bundle install --quiet 2>/dev/null
 
-    # Write kubeconfig if cluster container is running
-    if docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^${containerName}$"; then
-      docker exec ${containerName} cat /etc/rancher/k3s/k3s.yaml 2>/dev/null \
-        | sed "s|127.0.0.1|127.0.0.1|" > ${kubeconfigPath}
+    if ${pkgs.k3d}/bin/k3d cluster list 2>/dev/null | grep -q "${clusterName}"; then
+      ${pkgs.k3d}/bin/k3d kubeconfig get ${clusterName} > ${kubeconfigPath} 2>/dev/null
       env KUBECONFIG=${kubeconfigPath} ${pkgs.kubectl}/bin/kubectl config set-context --current --namespace=brute 2>/dev/null
       CLUSTER_STATUS="connected (namespace: brute)"
     else
@@ -322,6 +273,7 @@ let
     echo "Brute development environment"
     echo ""
     echo "  Ruby:    $(ruby --version | cut -d' ' -f2)"
+    echo "  k3d:     $(${pkgs.k3d}/bin/k3d version | head -1 | awk '{print $3}')"
     echo "  cluster: $CLUSTER_STATUS"
     echo ""
     echo "  cluster up|down|status|redeploy|undeploy|load|logs|forward|help"
