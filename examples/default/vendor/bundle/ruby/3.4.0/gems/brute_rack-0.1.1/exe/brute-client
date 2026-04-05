@@ -1,0 +1,290 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# CLI client for the Brute HTTP server.
+#
+# Usage:
+#   brute-client health
+#   brute-client prompt "Fix the failing tests"
+#   brute-client prompt --session abc123 "Continue working"
+#   brute-client stream "Refactor the auth module"
+#   brute-client sessions
+#   brute-client sessions create --title "Bug fix"
+#   brute-client sessions delete <id>
+#   brute-client files list .
+#   brute-client files read app.rb
+#   brute-client files search "def initialize"
+#   brute-client files status
+#   brute-client tools
+#   brute-client config
+#   brute-client vcs
+#   brute-client shell "ls -la"
+
+require "net/http"
+require "json"
+require "uri"
+require "optparse"
+
+class BruteClient
+  def initialize(base_url)
+    @base = URI.parse(base_url)
+  end
+
+  def get(path, query: nil)
+    uri = URI.join(@base, path)
+    uri.query = URI.encode_www_form(query) if query
+    Net::HTTP.get_response(uri).then { |r| handle(r) }
+  end
+
+  def post(path, body: {})
+    uri = URI.join(@base, path)
+    Net::HTTP.post(uri, JSON.generate(body), "Content-Type" => "application/json").then { |r| handle(r) }
+  end
+
+  def delete(path)
+    uri = URI.join(@base, path)
+    req = Net::HTTP::Delete.new(uri)
+    Net::HTTP.start(uri.host, uri.port) { |http| http.request(req) }.then { |r| handle(r) }
+  end
+
+  def stream(path, body: {})
+    uri = URI.join(@base, path)
+    req = Net::HTTP::Post.new(uri)
+    req["Content-Type"] = "application/json"
+    req["Accept"] = "text/event-stream"
+    req.body = JSON.generate(body)
+
+    Net::HTTP.start(uri.host, uri.port) do |http|
+      http.request(req) do |response|
+        response.read_body do |chunk|
+          chunk.lines.each do |line|
+            case line
+            when /\Aevent: (.+)/
+              @current_event = $1.strip
+            when /\Adata: (.+)/
+              handle_sse_event(@current_event, $1.strip)
+            end
+          end
+        end
+      end
+    end
+  end
+
+  private
+
+  def handle(response)
+    case response.code.to_i
+    when 200..299
+      begin
+        JSON.parse(response.body).then { |data| pp data }
+      rescue JSON::ParserError
+        puts response.body
+      end
+    when 204
+      puts "(no content)"
+    else
+      $stderr.puts "Error #{response.code}: #{response.body}"
+      exit 1
+    end
+  end
+
+  def handle_sse_event(type, data)
+    parsed = JSON.parse(data) rescue { "raw" => data }
+    case type
+    when "content"
+      print parsed["text"]
+    when "tool_call"
+      $stderr.puts "\n--- [#{parsed["name"]}] ---"
+    when "tool_result"
+      $stderr.puts "  [#{parsed["success"] ? "ok" : "FAILED"}]"
+    when "done"
+      puts
+      $stderr.puts "Tools: #{parsed["tools_called"]&.join(", ")}" if parsed["tools_called"]&.any?
+    when "error"
+      $stderr.puts "Error: #{parsed["message"]}"
+    when "server.connected"
+      $stderr.puts "Connected to brute-server #{parsed["version"]}"
+    else
+      $stderr.puts "[#{type}] #{data}"
+    end
+  end
+end
+
+# --- CLI ---
+
+base_url = ENV["BRUTE_SERVER"] || "http://127.0.0.1:9292"
+client = BruteClient.new(base_url)
+
+command = ARGV.shift
+
+case command
+when "health"
+  client.get("/global/health")
+
+when "prompt"
+  session_id = nil
+  parser = OptionParser.new do |opts|
+    opts.on("-s", "--session ID") { |id| session_id = id }
+  end
+  parser.order!(ARGV)
+  message = ARGV.join(" ")
+  abort "Usage: brute-client prompt \"your message\"" if message.empty?
+
+  session_id ||= SecureRandom.uuid
+  client.post("/session/#{session_id}/message", body: {
+    parts: [{ type: "text", text: message }],
+  })
+
+when "stream"
+  message = ARGV.join(" ")
+  abort "Usage: brute-client stream \"your message\"" if message.empty?
+
+  session_id = SecureRandom.uuid
+  client.post("/session", body: { title: message[0..50] })
+  # Use prompt_async + event stream
+  # For now, use blocking message which returns the full response
+  client.post("/session/#{session_id}/message", body: {
+    parts: [{ type: "text", text: message }],
+  })
+
+when "sessions"
+  sub = ARGV.shift
+  case sub
+  when "create"
+    title = nil
+    OptionParser.new { |o| o.on("-t", "--title T") { |t| title = t } }.order!(ARGV)
+    client.post("/session", body: { title: title })
+  when "delete"
+    id = ARGV.shift
+    abort "Usage: brute-client sessions delete <id>" unless id
+    client.delete("/session/#{id}")
+  when "status"
+    client.get("/session/status")
+  when nil
+    client.get("/session")
+  else
+    # Treat as session ID — get details
+    client.get("/session/#{sub}")
+  end
+
+when "messages"
+  id = ARGV.shift
+  abort "Usage: brute-client messages <session-id>" unless id
+  msg_id = ARGV.shift
+  if msg_id
+    client.get("/session/#{id}/message/#{msg_id}")
+  else
+    client.get("/session/#{id}/message")
+  end
+
+when "files"
+  sub = ARGV.shift
+  case sub
+  when "list"
+    path = ARGV.shift || "."
+    client.get("/file", query: { path: path })
+  when "read"
+    path = ARGV.shift
+    abort "Usage: brute-client files read <path>" unless path
+    client.get("/file/content", query: { path: path })
+  when "search"
+    pattern = ARGV.join(" ")
+    abort "Usage: brute-client files search <pattern>" if pattern.empty?
+    client.get("/find", query: { pattern: pattern })
+  when "find"
+    query = ARGV.join(" ")
+    abort "Usage: brute-client files find <query>" if query.empty?
+    client.get("/find/file", query: { query: query })
+  when "status"
+    client.get("/file/status")
+  else
+    abort "Usage: brute-client files {list|read|search|find|status}"
+  end
+
+when "tools"
+  sub = ARGV.shift
+  case sub
+  when "ids", nil
+    client.get("/experimental/tool/ids")
+  when "list"
+    client.get("/experimental/tool")
+  else
+    abort "Usage: brute-client tools {ids|list}"
+  end
+
+when "config"
+  sub = ARGV.shift
+  case sub
+  when "providers"
+    client.get("/config/providers")
+  when nil
+    client.get("/config")
+  end
+
+when "provider"
+  client.get("/provider")
+
+when "vcs"
+  client.get("/vcs")
+
+when "path"
+  client.get("/path")
+
+when "shell"
+  command_str = ARGV.join(" ")
+  abort "Usage: brute-client shell \"command\"" if command_str.empty?
+  session_id = SecureRandom.uuid
+  client.post("/session/#{session_id}/shell", body: { command: command_str })
+
+when "todo"
+  id = ARGV.shift
+  abort "Usage: brute-client todo <session-id>" unless id
+  client.get("/session/#{id}/todo")
+
+when "abort"
+  id = ARGV.shift
+  abort "Usage: brute-client abort <session-id>" unless id
+  client.post("/session/#{id}/abort")
+
+when "log"
+  message = ARGV.join(" ")
+  abort "Usage: brute-client log \"message\"" if message.empty?
+  client.post("/log", body: { service: "cli", level: "info", message: message })
+
+when nil, "help", "--help", "-h"
+  puts <<~HELP
+    Usage: brute-client <command> [args]
+
+    Commands:
+      health                          Server health check
+      prompt [-s session] "message"   Send a prompt (blocking)
+      stream "message"                Send a prompt (streaming)
+      sessions                        List sessions
+      sessions create [-t title]      Create a session
+      sessions delete <id>            Delete a session
+      sessions status                 Session statuses
+      messages <session-id> [msg-id]  List/get messages
+      files list [path]               List directory
+      files read <path>               Read file content
+      files search <pattern>          Search file contents
+      files find <query>              Find files by name
+      files status                    Git file status
+      tools [ids|list]                List available tools
+      config [providers]              Show configuration
+      provider                        List providers
+      vcs                             Git info
+      path                            Current directory
+      shell "command"                 Execute shell command
+      todo <session-id>               Session todo list
+      abort <session-id>              Abort running session
+      log "message"                   Write server log entry
+
+    Environment:
+      BRUTE_SERVER   Server URL (default: http://127.0.0.1:9292)
+  HELP
+
+else
+  $stderr.puts "Unknown command: #{command}"
+  $stderr.puts "Run 'brute-client help' for usage."
+  exit 1
+end

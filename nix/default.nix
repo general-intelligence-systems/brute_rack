@@ -39,12 +39,14 @@ let
         --wait \
         --timeout 120s \
         --agents 1 \
-        --k3s-arg "--disable=traefik@server:0" \
-        --port "9292:9292@loadbalancer" \
-        --port "9293:9293@loadbalancer"
+        --k3s-arg "--disable=traefik@server:0"
 
       $KUBECTL wait --for=condition=Ready nodes --all --timeout=120s
+      $KUBECTL config use-context k3d-$CLUSTER
       echo "Cluster '$CLUSTER' is ready"
+      echo ""
+      echo "To access services, use:"
+      echo "  kubectl port-forward svc/<name> 9292:80"
     }
 
     cmd_down() {
@@ -116,18 +118,27 @@ let
       $KUBECTL logs -l "$LABEL" -f --all-containers
     }
 
+    cmd_forward() {
+      SVC=''${1:-brute-agent}
+      LOCAL_PORT=''${2:-9292}
+      REMOTE_PORT=''${3:-80}
+      echo "Forwarding localhost:$LOCAL_PORT -> svc/$SVC:$REMOTE_PORT"
+      $KUBECTL port-forward svc/$SVC $LOCAL_PORT:$REMOTE_PORT
+    }
+
     cmd_help() {
       echo "Usage: cluster <command> [args]"
       echo ""
       echo "Commands:"
-      echo "  up              Create local k3d cluster"
-      echo "  down            Destroy local k3d cluster"
-      echo "  load <image>    Import Docker image into cluster"
-      echo "  status          Show cluster, nodes, and pods"
-      echo "  deploy [file]   Build, load, and apply deployment.yaml"
-      echo "  undeploy [file] Remove deployed resources"
-      echo "  logs [label]    Tail pod logs (default: app=brute-agent)"
-      echo "  help            Show this help"
+      echo "  up                         Create local k3d cluster"
+      echo "  down                       Destroy local k3d cluster"
+      echo "  load <image>               Import Docker image into cluster"
+      echo "  status                     Show cluster, nodes, and pods"
+      echo "  deploy [file]              Build, load, and apply deployment.yaml"
+      echo "  undeploy [file]            Remove deployed resources"
+      echo "  logs [label]               Tail pod logs (default: app=brute-agent)"
+      echo "  forward [svc] [local] [remote]  Port-forward a service (default: brute-agent 9292 80)"
+      echo "  help                       Show this help"
     }
 
     COMMAND="$1"
@@ -141,6 +152,7 @@ let
       deploy)   cmd_deploy "$@" ;;
       undeploy) cmd_undeploy "$@" ;;
       logs)     cmd_logs "$@" ;;
+      forward)  cmd_forward "$@" ;;
       help|-h|--help) cmd_help ;;
       "")       cmd_help ;;
       *)        echo "Unknown command: $COMMAND"; cmd_help; exit 1 ;;

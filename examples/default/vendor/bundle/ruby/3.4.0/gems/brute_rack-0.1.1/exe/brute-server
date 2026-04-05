@@ -1,0 +1,16 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# Start the Brute HTTP server.
+#
+#   brute-server                     # Run ./service.rb in the current directory
+#   brute-server /path/to/service.rb # Run a specific service config
+#
+# Requires async-service and falcon.
+
+config = ARGV.shift || File.join(Dir.pwd, "service.rb")
+
+abort "brute-server: #{config} not found" unless File.exist?(config)
+
+$stderr.puts "brute-server: #{config}"
+exec("async-service", config, *ARGV)
