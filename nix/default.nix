@@ -111,15 +111,31 @@ let
       echo "Loading image into k3d..."
       $K3D image import brute-local:latest --cluster $CLUSTER
 
-      if [ -n "''${LLM_API_KEY:-}" ]; then
-        echo "Creating secret from LLM_API_KEY..."
+      # Resolve API key: LLM_API_KEY > ANTHROPIC_API_KEY > OPENAI_API_KEY > GOOGLE_API_KEY
+      API_KEY="''${LLM_API_KEY:-''${ANTHROPIC_API_KEY:-''${OPENAI_API_KEY:-''${GOOGLE_API_KEY:-}}}}"
+      if [ -n "''${LLM_PROVIDER:-}" ]; then
+        PROVIDER="$LLM_PROVIDER"
+      elif [ -n "''${LLM_API_KEY:-}" ]; then
+        PROVIDER="anthropic"
+      elif [ -n "''${ANTHROPIC_API_KEY:-}" ]; then
+        PROVIDER="anthropic"
+      elif [ -n "''${OPENAI_API_KEY:-}" ]; then
+        PROVIDER="openai"
+      elif [ -n "''${GOOGLE_API_KEY:-}" ]; then
+        PROVIDER="google"
+      else
+        PROVIDER="anthropic"
+      fi
+
+      if [ -n "$API_KEY" ]; then
+        echo "Creating secret ($PROVIDER)..."
         $KUBECTL create secret generic brute-secrets \
           --namespace=brute \
-          --from-literal=llm-api-key="$LLM_API_KEY" \
-          --from-literal=llm-provider="''${LLM_PROVIDER:-anthropic}" \
+          --from-literal=llm-api-key="$API_KEY" \
+          --from-literal=llm-provider="$PROVIDER" \
           --dry-run=client -o yaml | $KUBECTL apply -f -
       else
-        echo "note: LLM_API_KEY not set — pods will boot but LLM calls will fail until the secret is created"
+        echo "note: No API key found — set LLM_API_KEY, ANTHROPIC_API_KEY, OPENAI_API_KEY, or GOOGLE_API_KEY"
       fi
 
       echo "Applying $DEPLOYMENT..."
