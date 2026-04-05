@@ -213,6 +213,7 @@ let
       echo "Commands:"
       echo "  up [file]                      Create cluster and deploy (default: deployment.yaml)"
       echo "  down                           Destroy cluster"
+      echo "  restart [file]                 Destroy and recreate cluster"
       echo "  status                         Show cluster, nodes, pods, services"
       echo "  redeploy [file]                Rebuild and redeploy without recreating cluster"
       echo "  undeploy [file]                Remove deployed resources"
@@ -232,6 +233,7 @@ let
     case "$COMMAND" in
       up)       cmd_up "$@" ;;
       down)     cmd_down "$@" ;;
+      restart)  cmd_down; cmd_up "$@" ;;
       status)   cmd_status "$@" ;;
       redeploy) cmd_redeploy "$@" ;;
       undeploy) cmd_undeploy "$@" ;;
