@@ -1,0 +1,86 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: brute-research
+  labels:
+    app: brute-research
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: brute-research
+  template:
+    metadata:
+      labels:
+        app: brute-research
+    spec:
+      containers:
+        - name: brute-research
+          image: brute-restricted:latest
+          ports:
+            - containerPort: 9292
+              name: http
+          env:
+            - name: NOTIFY_LOG
+              value: "/tmp/notify.log"
+            - name: BRUTE_CWD
+              value: "/workspace"
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: brute-secrets
+                  key: anthropic-api-key
+          readinessProbe:
+            exec:
+              command:
+                - bundle
+                - exec
+                - bake
+                - async:container:notify:log:ready?
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 12
+          livenessProbe:
+            httpGet:
+              path: /global/health
+              port: 9292
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+              readOnly: true
+      volumes:
+        - name: workspace
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: brute-research
+spec:
+  selector:
+    app: brute-research
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 9292
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: brute-secrets
+type: Opaque
+stringData:
+  anthropic-api-key: "REPLACE_ME"

@@ -1,0 +1,106 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: brute-multi
+  labels:
+    app: brute-multi
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: brute-multi
+  template:
+    metadata:
+      labels:
+        app: brute-multi
+    spec:
+      containers:
+        - name: brute-multi
+          image: brute-multi-agent:latest
+          ports:
+            - containerPort: 9292
+              name: reader
+            - containerPort: 9293
+              name: coder
+          env:
+            - name: NOTIFY_LOG
+              value: "/tmp/notify.log"
+            - name: BRUTE_READER_CWD
+              value: "/workspace/docs"
+            - name: BRUTE_CODER_CWD
+              value: "/workspace/project"
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: brute-secrets
+                  key: anthropic-api-key
+          readinessProbe:
+            exec:
+              command:
+                - bundle
+                - exec
+                - bake
+                - async:container:notify:log:ready?
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 12
+          livenessProbe:
+            httpGet:
+              path: /global/health
+              port: 9292
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "400m"
+            limits:
+              memory: "2Gi"
+              cpu: "2000m"
+          volumeMounts:
+            - name: docs
+              mountPath: /workspace/docs
+            - name: project
+              mountPath: /workspace/project
+      volumes:
+        - name: docs
+          emptyDir: {}
+        - name: project
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: brute-reader
+spec:
+  selector:
+    app: brute-multi
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 9292
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: brute-coder
+spec:
+  selector:
+    app: brute-multi
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 9293
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: brute-secrets
+type: Opaque
+stringData:
+  anthropic-api-key: "REPLACE_ME"

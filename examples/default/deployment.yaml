@@ -1,0 +1,85 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: brute-agent
+  labels:
+    app: brute-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: brute-agent
+  template:
+    metadata:
+      labels:
+        app: brute-agent
+    spec:
+      containers:
+        - name: brute-agent
+          image: brute-default:latest
+          ports:
+            - containerPort: 9292
+              name: http
+          env:
+            - name: NOTIFY_LOG
+              value: "/tmp/notify.log"
+            - name: BRUTE_CWD
+              value: "/workspace"
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: brute-secrets
+                  key: anthropic-api-key
+          readinessProbe:
+            exec:
+              command:
+                - bundle
+                - exec
+                - bake
+                - async:container:notify:log:ready?
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 12
+          livenessProbe:
+            httpGet:
+              path: /global/health
+              port: 9292
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "200m"
+            limits:
+              memory: "1Gi"
+              cpu: "1000m"
+          volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+      volumes:
+        - name: workspace
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: brute-agent
+spec:
+  selector:
+    app: brute-agent
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 9292
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: brute-secrets
+type: Opaque
+stringData:
+  anthropic-api-key: "REPLACE_ME"
