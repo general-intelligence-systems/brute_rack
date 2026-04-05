@@ -7,24 +7,19 @@
 #   exe/brute-server examples/restricted/service.rb
 
 require "brute_rack"
-require "falcon"
+require "falcon/environment/server"
 
 service "research" do
-  include Async::Service::Managed::Environment
+  include Falcon::Environment::Server
 
-  service_class Falcon::Service::Server
-  port ENV.fetch("PORT", 9292).to_i
+  url "http://0.0.0.0:#{ENV.fetch("PORT", 9292)}"
 
-  endpoint do
-    Async::HTTP::Endpoint.parse("http://0.0.0.0:#{port}")
-  end
-
-  make_server do
+  middleware do
     tools = [Brute::Tools::FSRead, Brute::Tools::FSSearch, Brute::Tools::NetFetch, Brute::Tools::TodoRead, Brute::Tools::TodoWrite]
     app = BruteRack::App.new(
       cwd: ENV.fetch("BRUTE_CWD", "/srv/research"),
       agent_options: { tools: tools, reasoning: { level: :high }, compactor_opts: { token_threshold: 50_000 } },
     )
-    Falcon::Server.new(Falcon::Server.middleware(app), endpoint)
+    Falcon::Server.middleware(app)
   end
 end

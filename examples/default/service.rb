@@ -7,23 +7,18 @@
 #   exe/brute-server
 
 require "brute_rack"
-require "falcon"
+require "falcon/environment/server"
 
 service "brute" do
-  include Async::Service::Managed::Environment
+  include Falcon::Environment::Server
 
-  service_class Falcon::Service::Server
-  port ENV.fetch("PORT", 9292).to_i
+  url "http://0.0.0.0:#{ENV.fetch("PORT", 9292)}"
 
-  endpoint do
-    Async::HTTP::Endpoint.parse("http://0.0.0.0:#{port}")
-  end
-
-  make_server do
+  middleware do
     app = BruteRack::App.new(
       cwd: ENV.fetch("BRUTE_CWD", Dir.pwd),
       agent_options: { tools: Brute::TOOLS },
     )
-    Falcon::Server.new(Falcon::Server.middleware(app), endpoint)
+    Falcon::Server.middleware(app)
   end
 end
