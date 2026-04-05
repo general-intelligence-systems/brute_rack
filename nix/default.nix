@@ -195,7 +195,8 @@ let
 
     cmd_logs() {
       LABEL=''${1:-app}
-      $KUBECTL logs -l "$LABEL" --namespace=brute -f --all-containers --tail=-1
+      shift 2>/dev/null || true
+      $KUBECTL logs -l "$LABEL" --namespace=brute --all-containers --tail=-1 "$@"
     }
 
     cmd_forward() {
@@ -216,7 +217,7 @@ let
       echo "  redeploy [file]                Rebuild and redeploy without recreating cluster"
       echo "  undeploy [file]                Remove deployed resources"
       echo "  load <image>                   Import Docker image into cluster"
-      echo "  logs [label]                   Tail pod logs (default: app)"
+      echo "  logs [label] [flags]           Show pod logs (default: app). Add -f to follow"
       echo "  forward [svc] [local] [remote] Port-forward a service (default: brute-agent 9292 80)"
       echo "  help                           Show this help"
       echo ""
