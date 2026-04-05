@@ -9,7 +9,6 @@
 #   brute-client health
 #   brute-client prompt "Fix the failing tests"
 #   brute-client prompt --session abc123 "Continue working"
-#   brute-client stream "Refactor the auth module"
 #   brute-client sessions
 #   brute-client sessions create --title "Bug fix"
 #   brute-client sessions delete <id>
@@ -54,29 +53,6 @@ class BruteClient
     Net::HTTP.start(uri.host, uri.port) { |http| http.request(req) }.then { |r| handle(r) }
   end
 
-  def stream(path, body: {})
-    uri = URI.join(@base, path)
-    req = Net::HTTP::Post.new(uri)
-    req["Content-Type"] = "application/json"
-    req["Accept"] = "text/event-stream"
-    req.body = JSON.generate(body)
-
-    Net::HTTP.start(uri.host, uri.port) do |http|
-      http.request(req) do |response|
-        response.read_body do |chunk|
-          chunk.lines.each do |line|
-            case line
-            when /\Aevent: (.+)/
-              @current_event = $1.strip
-            when /\Adata: (.+)/
-              handle_sse_event(@current_event, $1.strip)
-            end
-          end
-        end
-      end
-    end
-  end
-
   private
 
   def handle(response)
@@ -95,26 +71,6 @@ class BruteClient
     end
   end
 
-  def handle_sse_event(type, data)
-    parsed = JSON.parse(data) rescue { "raw" => data }
-    case type
-    when "content"
-      print parsed["text"]
-    when "tool_call"
-      $stderr.puts "\n--- [#{parsed["name"]}] ---"
-    when "tool_result"
-      $stderr.puts "  [#{parsed["success"] ? "ok" : "FAILED"}]"
-    when "done"
-      puts
-      $stderr.puts "Tools: #{parsed["tools_called"]&.join(", ")}" if parsed["tools_called"]&.any?
-    when "error"
-      $stderr.puts "Error: #{parsed["message"]}"
-    when "server.connected"
-      $stderr.puts "Connected to brute-server #{parsed["version"]}"
-    else
-      $stderr.puts "[#{type}] #{data}"
-    end
-  end
 end
 
 # --- CLI ---
@@ -138,18 +94,6 @@ when "prompt"
   abort "Usage: brute-client prompt \"your message\"" if message.empty?
 
   session_id ||= SecureRandom.uuid
-  client.post("/session/#{session_id}/message", body: {
-    parts: [{ type: "text", text: message }],
-  })
-
-when "stream"
-  message = ARGV.join(" ")
-  abort "Usage: brute-client stream \"your message\"" if message.empty?
-
-  session_id = SecureRandom.uuid
-  client.post("/session", body: { title: message[0..50] })
-  # Use prompt_async + event stream
-  # For now, use blocking message which returns the full response
   client.post("/session/#{session_id}/message", body: {
     parts: [{ type: "text", text: message }],
   })
@@ -308,8 +252,7 @@ when nil, "help", "--help", "-h"
     Commands:
       chat [prompt]                    Interactive coding session (REPL)
       health                          Server health check
-      prompt [-s session] "message"   Send a prompt (blocking)
-      stream "message"                Send a prompt (streaming)
+      prompt [-s session] "message"   Send a single prompt
       sessions                        List sessions
       sessions create [-t title]      Create a session
       sessions delete <id>            Delete a session
