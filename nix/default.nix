@@ -4,7 +4,7 @@
 #   - Ruby + bundler for running the agent
 #   - k3d + kubectl + helm for local Kubernetes
 #   - kubectl wrapper that automatically uses the k3d kubeconfig
-#   - Single `cluster` command: cluster {up,down,load,status,redeploy,undeploy,logs,forward}
+#   - Single `cluster` command: cluster {up,down,status,redeploy,undeploy,load,logs,forward}
 #
 # Usage as a flake input:
 #
@@ -37,9 +37,16 @@ let
 
     wait_for_pods() {
       echo "Waiting for pods..."
+      # Wait until at least one pod exists
       while [ -z "$($KUBECTL get pods -A --no-headers 2>/dev/null)" ]; do
         sleep 2
       done
+
+      # Stream cluster events in background
+      $KUBECTL get events -A --watch-only 2>/dev/null &
+      EVENTS_PID=$!
+
+      # Wait until all pods are Running or Completed
       while true; do
         TOTAL=$($KUBECTL get pods -A --no-headers 2>/dev/null | wc -l)
         READY=$($KUBECTL get pods -A --no-headers 2>/dev/null | grep -c "Running\|Completed" || true)
@@ -49,6 +56,9 @@ let
         fi
         sleep 3
       done
+
+      kill $EVENTS_PID 2>/dev/null
+      wait $EVENTS_PID 2>/dev/null
     }
 
     deploy_app() {
@@ -59,17 +69,42 @@ let
 
       echo ""
       echo "Building Docker image..."
-      docker build -t brute-local:latest .
+      if ! docker build -t brute-local:latest .; then
+        echo "warning: Docker build failed, skipping deploy" >&2
+        return 1
+      fi
 
       echo "Loading image into k3d..."
       $K3D image import brute-local:latest --cluster $CLUSTER
 
+      # Create secret from LLM_API_KEY env var
+      if [ -n "''${LLM_API_KEY:-}" ]; then
+        echo "Creating secret from LLM_API_KEY..."
+        $KUBECTL create secret generic brute-secrets \
+          --namespace=brute \
+          --from-literal=llm-api-key="$LLM_API_KEY" \
+          --from-literal=llm-provider="''${LLM_PROVIDER:-anthropic}" \
+          --dry-run=client -o yaml | $KUBECTL apply -f -
+      else
+        echo "note: LLM_API_KEY not set — pods will boot but LLM calls will fail until the secret is created"
+      fi
+
       echo "Applying $DEPLOYMENT..."
       $KUBECTL apply -f "$DEPLOYMENT"
 
-      echo "Waiting for rollout..."
-      DEPLOY_NAME=$(grep -m1 'name:' "$DEPLOYMENT" | awk '{print $2}')
-      $KUBECTL rollout status deployment/"$DEPLOY_NAME" --timeout=120s 2>/dev/null
+      # Stream pod logs in background during rollout
+      sleep 2
+      $KUBECTL logs -f -l app --namespace=brute --all-containers --ignore-errors 2>/dev/null &
+      LOG_PID=$!
+
+      echo "Waiting for rollout (timeout: 90s)..."
+      DEPLOY_NAME=$(grep -A1 'kind: Deployment' "$DEPLOYMENT" | grep 'name:' | head -1 | awk '{print $2}')
+      if [ -n "$DEPLOY_NAME" ]; then
+        $KUBECTL rollout status deployment/"$DEPLOY_NAME" --namespace=brute --timeout=90s 2>/dev/null || echo "warning: rollout not ready within 90s"
+      fi
+
+      kill $LOG_PID 2>/dev/null
+      wait $LOG_PID 2>/dev/null
     }
 
     cmd_up() {
@@ -81,6 +116,7 @@ let
       if $K3D cluster list 2>/dev/null | grep -q "$CLUSTER"; then
         echo "Cluster '$CLUSTER' already exists"
         $K3D kubeconfig get $CLUSTER > "$KUBECONFIG_FILE" 2>/dev/null
+        $KUBECTL config set-context --current --namespace=brute 2>/dev/null
         echo "kubectl configured"
         exit 0
       fi
@@ -110,7 +146,7 @@ let
       echo ""
       $KUBECTL get pods -A
       echo ""
-      $KUBECTL get svc 2>/dev/null
+      $KUBECTL get svc --namespace=brute 2>/dev/null
       echo ""
       echo "Cluster '$CLUSTER' is ready"
     }
@@ -141,16 +177,15 @@ let
       $KUBECTL get pods -A 2>/dev/null || echo "(not running)"
       echo
       echo "=== Services ==="
-      $KUBECTL get svc 2>/dev/null || echo "(none)"
+      $KUBECTL get svc --namespace=brute 2>/dev/null || echo "(none)"
     }
 
     cmd_redeploy() {
       deploy_app "$@"
-      wait_for_pods
       echo ""
-      $KUBECTL get pods -A
+      $KUBECTL get pods --namespace=brute
       echo ""
-      $KUBECTL get svc 2>/dev/null
+      $KUBECTL get svc --namespace=brute 2>/dev/null
     }
 
     cmd_undeploy() {
@@ -164,8 +199,8 @@ let
     }
 
     cmd_logs() {
-      LABEL=''${1:-app=brute-agent}
-      $KUBECTL logs -l "$LABEL" -f --all-containers
+      LABEL=''${1:-app}
+      $KUBECTL logs -l "$LABEL" --namespace=brute -f --all-containers
     }
 
     cmd_forward() {
@@ -173,7 +208,7 @@ let
       LOCAL_PORT=''${2:-9292}
       REMOTE_PORT=''${3:-80}
       echo "Forwarding localhost:$LOCAL_PORT -> svc/$SVC:$REMOTE_PORT"
-      $KUBECTL port-forward svc/$SVC $LOCAL_PORT:$REMOTE_PORT
+      $KUBECTL port-forward svc/$SVC --namespace=brute $LOCAL_PORT:$REMOTE_PORT
     }
 
     cmd_help() {
@@ -186,9 +221,13 @@ let
       echo "  redeploy [file]                Rebuild and redeploy without recreating cluster"
       echo "  undeploy [file]                Remove deployed resources"
       echo "  load <image>                   Import Docker image into cluster"
-      echo "  logs [label]                   Tail pod logs (default: app=brute-agent)"
+      echo "  logs [label]                   Tail pod logs (default: app)"
       echo "  forward [svc] [local] [remote] Port-forward a service (default: brute-agent 9292 80)"
       echo "  help                           Show this help"
+      echo ""
+      echo "Environment:"
+      echo "  LLM_API_KEY                    API key (injected as k8s secret)"
+      echo "  LLM_PROVIDER                   Provider name (default: anthropic)"
     }
 
     COMMAND="$1"

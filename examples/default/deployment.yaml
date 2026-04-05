@@ -23,31 +23,25 @@ spec:
             - containerPort: 9292
               name: http
           env:
-            - name: NOTIFY_LOG
-              value: "/tmp/notify.log"
             - name: BRUTE_CWD
               value: "/workspace"
-            - name: ANTHROPIC_API_KEY
+            - name: LLM_API_KEY
               valueFrom:
                 secretKeyRef:
                   name: brute-secrets
-                  key: anthropic-api-key
-          readinessProbe:
-            exec:
-              command:
-                - bundle
-                - exec
-                - bake
-                - async:container:notify:log:ready?
-            initialDelaySeconds: 5
-            periodSeconds: 5
-            timeoutSeconds: 3
-            failureThreshold: 12
+                  key: llm-api-key
+                  optional: true
+            - name: LLM_PROVIDER
+              valueFrom:
+                secretKeyRef:
+                  name: brute-secrets
+                  key: llm-provider
+                  optional: true
           livenessProbe:
             httpGet:
               path: /global/health
               port: 9292
-            initialDelaySeconds: 15
+            initialDelaySeconds: 10
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 3
@@ -78,12 +72,3 @@ spec:
       port: 80
       targetPort: 9292
   type: ClusterIP
----
-apiVersion: v1
-kind: Secret
-metadata:
-  name: brute-secrets
-  namespace: brute
-type: Opaque
-stringData:
-  anthropic-api-key: "REPLACE_ME"
