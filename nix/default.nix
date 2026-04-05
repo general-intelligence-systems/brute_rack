@@ -5,6 +5,7 @@
 #   - k3d + kubectl + helm for local Kubernetes
 #   - kubectl wrapper that automatically uses the k3d kubeconfig
 #   - Single `cluster` command: cluster {up,down,status,redeploy,undeploy,load,logs,forward}
+#   - Auto port-forwarding on cluster up
 #
 # Usage as a flake input:
 #
@@ -18,6 +19,7 @@
 let
   clusterName = "brute";
   kubeconfigPath = "/tmp/k3d-${clusterName}-kubeconfig.yaml";
+  portForwardPidFile = "/tmp/${clusterName}-port-forward.pid";
 
   # kubectl wrapper — automatically uses the k3d kubeconfig.
   kubectl = pkgs.writeShellScriptBin "kubectl" ''
@@ -34,6 +36,41 @@ let
     KUBECTL="env KUBECONFIG=${kubeconfigPath} ${pkgs.kubectl}/bin/kubectl"
     CLUSTER="${clusterName}"
     KUBECONFIG_FILE="${kubeconfigPath}"
+    PF_PIDFILE="${portForwardPidFile}"
+
+    stop_port_forward() {
+      if [ -f "$PF_PIDFILE" ]; then
+        PF_PID=$(cat "$PF_PIDFILE")
+        if kill -0 "$PF_PID" 2>/dev/null; then
+          kill "$PF_PID" 2>/dev/null
+          echo "Stopped port-forward (pid $PF_PID)"
+        fi
+        rm -f "$PF_PIDFILE"
+      fi
+    }
+
+    start_port_forward() {
+      stop_port_forward
+
+      SVC_NAME=$($KUBECTL get svc --namespace=brute -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+      if [ -z "$SVC_NAME" ]; then
+        return 0
+      fi
+
+      TARGET_PORT=$($KUBECTL get svc "$SVC_NAME" --namespace=brute -o jsonpath='{.spec.ports[0].targetPort}' 2>/dev/null)
+      TARGET_PORT=''${TARGET_PORT:-9292}
+
+      nohup $KUBECTL port-forward svc/$SVC_NAME --namespace=brute $TARGET_PORT:$TARGET_PORT >/dev/null 2>&1 &
+      echo $! > "$PF_PIDFILE"
+      sleep 1
+
+      if kill -0 $(cat "$PF_PIDFILE") 2>/dev/null; then
+        echo "Forwarding http://localhost:$TARGET_PORT -> svc/$SVC_NAME"
+      else
+        echo "warning: port-forward failed to start" >&2
+        rm -f "$PF_PIDFILE"
+      fi
+    }
 
     wait_for_pods() {
       echo "Waiting for pods..."
@@ -112,6 +149,7 @@ let
         echo "Cluster '$CLUSTER' already exists"
         $K3D kubeconfig get $CLUSTER > "$KUBECONFIG_FILE" 2>/dev/null
         $KUBECTL config set-context --current --namespace=brute 2>/dev/null
+        start_port_forward
         echo "kubectl configured"
         exit 0
       fi
@@ -143,13 +181,18 @@ let
       echo ""
       $KUBECTL get svc --namespace=brute 2>/dev/null
       echo ""
-      echo "Cluster '$CLUSTER' is ready"
+
+      start_port_forward
+
+      echo ""
+      echo "Cluster is ready"
     }
 
     cmd_down() {
+      stop_port_forward
       $K3D cluster delete $CLUSTER 2>/dev/null
       rm -f "$KUBECONFIG_FILE"
-      echo "Cluster '$CLUSTER' deleted"
+      echo "Cluster deleted"
     }
 
     cmd_load() {
@@ -158,7 +201,7 @@ let
         exit 1
       fi
       $K3D image import "$1" --cluster $CLUSTER
-      echo "Loaded $1 into cluster '$CLUSTER'"
+      echo "Loaded $1 into cluster"
     }
 
     cmd_status() {
@@ -173,10 +216,19 @@ let
       echo
       echo "=== Services ==="
       $KUBECTL get svc --namespace=brute 2>/dev/null || echo "(none)"
+      echo
+      echo "=== Port Forward ==="
+      if [ -f "$PF_PIDFILE" ] && kill -0 $(cat "$PF_PIDFILE") 2>/dev/null; then
+        echo "Active (pid $(cat "$PF_PIDFILE"))"
+      else
+        echo "Not running"
+      fi
     }
 
     cmd_redeploy() {
+      stop_port_forward
       deploy_app "$@"
+      start_port_forward
       echo ""
       $KUBECTL get pods --namespace=brute
       echo ""
@@ -184,6 +236,7 @@ let
     }
 
     cmd_undeploy() {
+      stop_port_forward
       DEPLOYMENT=''${1:-deployment.yaml}
       if [ ! -f "$DEPLOYMENT" ]; then
         echo "error: $DEPLOYMENT not found" >&2
@@ -211,15 +264,15 @@ let
       echo "Usage: cluster <command> [args]"
       echo ""
       echo "Commands:"
-      echo "  up [file]                      Create cluster and deploy (default: deployment.yaml)"
-      echo "  down                           Destroy cluster"
+      echo "  up [file]                      Create cluster, deploy, and port-forward"
+      echo "  down                           Stop port-forward and destroy cluster"
       echo "  restart [file]                 Destroy and recreate cluster"
-      echo "  status                         Show cluster, nodes, pods, services"
+      echo "  status                         Show cluster, nodes, pods, services, port-forward"
       echo "  redeploy [file]                Rebuild and redeploy without recreating cluster"
       echo "  undeploy [file]                Remove deployed resources"
       echo "  load <image>                   Import Docker image into cluster"
       echo "  logs [label] [flags]           Show pod logs (default: app). Add -f to follow"
-      echo "  forward [svc] [local] [remote] Port-forward a service (default: brute-agent 9292 80)"
+      echo "  forward [svc] [local] [remote] Manual port-forward (default: brute-agent 9292 80)"
       echo "  help                           Show this help"
       echo ""
       echo "Environment:"
@@ -268,6 +321,20 @@ let
       ${pkgs.k3d}/bin/k3d kubeconfig get ${clusterName} > ${kubeconfigPath} 2>/dev/null
       env KUBECONFIG=${kubeconfigPath} ${pkgs.kubectl}/bin/kubectl config set-context --current --namespace=brute 2>/dev/null
       CLUSTER_STATUS="connected (namespace: brute)"
+
+      # Restart port-forward if not running
+      if [ -f "${portForwardPidFile}" ] && kill -0 $(cat "${portForwardPidFile}") 2>/dev/null; then
+        PF_PORT="active"
+      else
+        SVC_NAME=$(env KUBECONFIG=${kubeconfigPath} ${pkgs.kubectl}/bin/kubectl get svc --namespace=brute -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+        if [ -n "$SVC_NAME" ]; then
+          TARGET_PORT=$(env KUBECONFIG=${kubeconfigPath} ${pkgs.kubectl}/bin/kubectl get svc "$SVC_NAME" --namespace=brute -o jsonpath='{.spec.ports[0].targetPort}' 2>/dev/null)
+          TARGET_PORT=''${TARGET_PORT:-9292}
+          nohup env KUBECONFIG=${kubeconfigPath} ${pkgs.kubectl}/bin/kubectl port-forward svc/$SVC_NAME --namespace=brute $TARGET_PORT:$TARGET_PORT >/dev/null 2>&1 &
+          echo $! > ${portForwardPidFile}
+          PF_PORT="$TARGET_PORT (restarted)"
+        fi
+      fi
     else
       CLUSTER_STATUS="not running (run: cluster up)"
     fi
@@ -278,8 +345,11 @@ let
     echo "  Ruby:    $(ruby --version | cut -d' ' -f2)"
     echo "  k3d:     $(${pkgs.k3d}/bin/k3d version | head -1 | awk '{print $3}')"
     echo "  cluster: $CLUSTER_STATUS"
+    if [ -n "''${PF_PORT:-}" ]; then
+      echo "  forward: http://localhost:$PF_PORT"
+    fi
     echo ""
-    echo "  cluster up|down|status|redeploy|undeploy|load|logs|forward|help"
+    echo "  cluster up|down|restart|status|redeploy|undeploy|load|logs|forward|help"
     echo ""
   '';
 
