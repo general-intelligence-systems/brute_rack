@@ -4,7 +4,7 @@
 #   - Ruby + bundler for running the agent
 #   - k3d + kubectl + helm for local Kubernetes
 #   - kubectl wrapper that automatically uses the k3d kubeconfig
-#   - Single `cluster` command: cluster {up,down,load,status,deploy,undeploy,logs,forward}
+#   - Single `cluster` command: cluster {up,down,load,status,redeploy,undeploy,logs,forward}
 #
 # Usage as a flake input:
 #
@@ -20,7 +20,6 @@ let
   kubeconfigPath = "/tmp/k3d-${clusterName}-kubeconfig.yaml";
 
   # kubectl wrapper — automatically uses the k3d kubeconfig.
-  # No environment variables to set. No use-context. Just works.
   kubectl = pkgs.writeShellScriptBin "kubectl" ''
     if [ -f "${kubeconfigPath}" ]; then
       exec env KUBECONFIG="${kubeconfigPath}" ${pkgs.kubectl}/bin/kubectl "$@"
@@ -35,6 +34,43 @@ let
     KUBECTL="env KUBECONFIG=${kubeconfigPath} ${pkgs.kubectl}/bin/kubectl"
     CLUSTER="${clusterName}"
     KUBECONFIG_FILE="${kubeconfigPath}"
+
+    wait_for_pods() {
+      echo "Waiting for pods..."
+      while [ -z "$($KUBECTL get pods -A --no-headers 2>/dev/null)" ]; do
+        sleep 2
+      done
+      while true; do
+        TOTAL=$($KUBECTL get pods -A --no-headers 2>/dev/null | wc -l)
+        READY=$($KUBECTL get pods -A --no-headers 2>/dev/null | grep -c "Running\|Completed" || true)
+        echo "  pods: $READY/$TOTAL ready"
+        if [ "$TOTAL" -gt 0 ] && [ "$READY" -eq "$TOTAL" ]; then
+          break
+        fi
+        sleep 3
+      done
+    }
+
+    deploy_app() {
+      DEPLOYMENT=''${1:-deployment.yaml}
+      if [ ! -f "$DEPLOYMENT" ]; then
+        return 0
+      fi
+
+      echo ""
+      echo "Building Docker image..."
+      docker build -t brute-local:latest .
+
+      echo "Loading image into k3d..."
+      $K3D image import brute-local:latest --cluster $CLUSTER
+
+      echo "Applying $DEPLOYMENT..."
+      $KUBECTL apply -f "$DEPLOYMENT"
+
+      echo "Waiting for rollout..."
+      DEPLOY_NAME=$(grep -m1 'name:' "$DEPLOYMENT" | awk '{print $2}')
+      $KUBECTL rollout status deployment/"$DEPLOY_NAME" --timeout=120s 2>/dev/null
+    }
 
     cmd_up() {
       if ! command -v docker &> /dev/null || ! docker info &> /dev/null 2>&1; then
@@ -62,27 +98,16 @@ let
       echo "Waiting for nodes..."
       $KUBECTL wait --for=condition=Ready nodes --all --timeout=120s 2>/dev/null
 
-      echo "Waiting for system pods..."
-      # Wait until at least one pod exists
-      while [ -z "$($KUBECTL get pods -A --no-headers 2>/dev/null)" ]; do
-        sleep 2
-      done
-      # Wait until all pods are Running or Completed
-      while true; do
-        TOTAL=$($KUBECTL get pods -A --no-headers 2>/dev/null | wc -l)
-        READY=$($KUBECTL get pods -A --no-headers 2>/dev/null | grep -c "Running\|Completed" || true)
-        echo "  pods: $READY/$TOTAL ready"
-        if [ "$TOTAL" -gt 0 ] && [ "$READY" -eq "$TOTAL" ]; then
-          break
-        fi
-        sleep 3
-      done
+      wait_for_pods
+
+      deploy_app "$@"
 
       echo ""
       $KUBECTL get pods -A
       echo ""
+      $KUBECTL get svc 2>/dev/null
+      echo ""
       echo "Cluster '$CLUSTER' is ready"
-      echo "kubectl is configured automatically"
     }
 
     cmd_down() {
@@ -109,35 +134,18 @@ let
       echo
       echo "=== Pods ==="
       $KUBECTL get pods -A 2>/dev/null || echo "(not running)"
-    }
-
-    cmd_deploy() {
-      DEPLOYMENT=''${1:-deployment.yaml}
-      if [ ! -f "$DEPLOYMENT" ]; then
-        echo "error: $DEPLOYMENT not found" >&2
-        echo "Usage: cluster deploy [deployment.yaml]" >&2
-        exit 1
-      fi
-
-      echo "Building Docker image..."
-      docker build -t brute-local:latest .
-
-      echo "Loading image into k3d..."
-      $K3D image import brute-local:latest --cluster $CLUSTER
-
-      echo "Applying $DEPLOYMENT..."
-      $KUBECTL apply -f "$DEPLOYMENT"
-
-      echo "Waiting for rollout..."
-      DEPLOY_NAME=$(grep -m1 'name:' "$DEPLOYMENT" | awk '{print $2}')
-      $KUBECTL rollout status deployment/"$DEPLOY_NAME" --timeout=120s 2>/dev/null
-
-      echo
-      echo "=== Pods ==="
-      $KUBECTL get pods
       echo
       echo "=== Services ==="
-      $KUBECTL get svc
+      $KUBECTL get svc 2>/dev/null || echo "(none)"
+    }
+
+    cmd_redeploy() {
+      deploy_app "$@"
+      wait_for_pods
+      echo ""
+      $KUBECTL get pods -A
+      echo ""
+      $KUBECTL get svc 2>/dev/null
     }
 
     cmd_undeploy() {
@@ -167,15 +175,15 @@ let
       echo "Usage: cluster <command> [args]"
       echo ""
       echo "Commands:"
-      echo "  up                         Create local k3d cluster"
-      echo "  down                       Destroy local k3d cluster"
-      echo "  load <image>               Import Docker image into cluster"
-      echo "  status                     Show cluster, nodes, and pods"
-      echo "  deploy [file]              Build, load, and apply deployment.yaml"
-      echo "  undeploy [file]            Remove deployed resources"
-      echo "  logs [label]               Tail pod logs (default: app=brute-agent)"
-      echo "  forward [svc] [local] [remote]  Port-forward a service (default: brute-agent 9292 80)"
-      echo "  help                       Show this help"
+      echo "  up [file]                      Create cluster and deploy (default: deployment.yaml)"
+      echo "  down                           Destroy cluster"
+      echo "  status                         Show cluster, nodes, pods, services"
+      echo "  redeploy [file]                Rebuild and redeploy without recreating cluster"
+      echo "  undeploy [file]                Remove deployed resources"
+      echo "  load <image>                   Import Docker image into cluster"
+      echo "  logs [label]                   Tail pod logs (default: app=brute-agent)"
+      echo "  forward [svc] [local] [remote] Port-forward a service (default: brute-agent 9292 80)"
+      echo "  help                           Show this help"
     }
 
     COMMAND="$1"
@@ -184,10 +192,10 @@ let
     case "$COMMAND" in
       up)       cmd_up "$@" ;;
       down)     cmd_down "$@" ;;
-      load)     cmd_load "$@" ;;
       status)   cmd_status "$@" ;;
-      deploy)   cmd_deploy "$@" ;;
+      redeploy) cmd_redeploy "$@" ;;
       undeploy) cmd_undeploy "$@" ;;
+      load)     cmd_load "$@" ;;
       logs)     cmd_logs "$@" ;;
       forward)  cmd_forward "$@" ;;
       help|-h|--help) cmd_help ;;
@@ -229,7 +237,7 @@ let
     echo "  k3d:     $(${pkgs.k3d}/bin/k3d version | head -1 | awk '{print $3}')"
     echo "  cluster: $CLUSTER_STATUS"
     echo ""
-    echo "  cluster up|down|load|status|deploy|undeploy|logs|forward|help"
+    echo "  cluster up|down|status|redeploy|undeploy|load|logs|forward|help"
     echo ""
   '';
 
