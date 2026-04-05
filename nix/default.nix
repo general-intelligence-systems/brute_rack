@@ -90,6 +90,7 @@ let
         --wait \
         --timeout 120s \
         --agents 0 \
+        --no-lb \
         --k3s-arg "--disable=traefik@server:0" \
         --k3s-arg "--disable=metrics-server@server:0"
 
