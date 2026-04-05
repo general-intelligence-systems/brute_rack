@@ -4,7 +4,7 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
-    brute-nix.url = "path:../../nix";
+    brute-nix.url = "github:general-intelligence-systems/brute_rack?dir=nix";
   };
 
   outputs = { self, nixpkgs, flake-utils, brute-nix }:
