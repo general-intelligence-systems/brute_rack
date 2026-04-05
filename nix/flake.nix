@@ -1,5 +1,5 @@
 {
-  description = "Shared Nix module for Brute agent deployments — k3d, kubectl, helm, convenience scripts";
+  description = "Shared Nix module for Brute agent deployments — k3s, kubectl, helm, convenience scripts";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -14,6 +14,8 @@
       in
       {
         lib = brute;
+
+        packages.cluster-image = import ./k3s.nix { inherit pkgs; };
 
         devShells.default = pkgs.mkShell {
           packages = brute.shellPackages;
