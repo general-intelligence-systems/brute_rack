@@ -30,7 +30,7 @@ service "research" do
   def reasoning = { level: :high }
   def compactor_opts = { token_threshold: 50_000 }
 
-  def app
+  def rack_app
     BruteRack::App.new(
       cwd: cwd,
       agent_options: {

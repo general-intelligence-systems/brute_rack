@@ -26,7 +26,7 @@ service "brute" do
   def reasoning = {}
   def compactor_opts = {}
 
-  def app
+  def rack_app
     BruteRack::App.new(
       cwd: cwd,
       agent_options: {

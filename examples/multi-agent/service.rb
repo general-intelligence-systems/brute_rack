@@ -26,7 +26,7 @@ service "reader" do
   def reasoning = {}
   def compactor_opts = {}
 
-  def app
+  def rack_app
     BruteRack::App.new(
       cwd: cwd,
       agent_options: { tools: tools, reasoning: reasoning, compactor_opts: compactor_opts },
@@ -51,7 +51,7 @@ service "coder" do
   def reasoning = { level: :high }
   def compactor_opts = {}
 
-  def app
+  def rack_app
     BruteRack::App.new(
       cwd: cwd,
       agent_options: { tools: tools, reasoning: reasoning, compactor_opts: compactor_opts },
