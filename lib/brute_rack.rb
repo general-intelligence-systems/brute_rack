@@ -5,7 +5,7 @@ require "json"
 require "rack"
 
 module BruteRack
-  VERSION = "0.1.2"
+  VERSION = "0.1.3"
 
   # Not frozen — WEBrick mutates response headers.
   HEADERS_JSON = {"content-type" => "application/json"}

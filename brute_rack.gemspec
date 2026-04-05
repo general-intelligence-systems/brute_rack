@@ -2,7 +2,7 @@
 
 Gem::Specification.new do |spec|
   spec.name          = "brute_rack"
-  spec.version       = "0.1.2"
+  spec.version       = "0.1.3"
   spec.authors       = ["Brute Contributors"]
   spec.summary       = "HTTP API for the Brute coding agent"
   spec.description   = "Rack app exposing the Brute agent over HTTP with " \
