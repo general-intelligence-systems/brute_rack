@@ -63,12 +63,19 @@ let
       $KUBECTL wait --for=condition=Ready nodes --all --timeout=120s 2>/dev/null
 
       echo "Waiting for system pods..."
+      # Wait until at least one pod exists
+      while [ -z "$($KUBECTL get pods -A --no-headers 2>/dev/null)" ]; do
+        sleep 2
+      done
+      # Wait until all pods are Running or Completed
       while true; do
-        NOT_READY=$($KUBECTL get pods -A --no-headers 2>/dev/null | grep -v "Running\|Completed" || true)
-        if [ -z "$NOT_READY" ]; then
+        TOTAL=$($KUBECTL get pods -A --no-headers 2>/dev/null | wc -l)
+        READY=$($KUBECTL get pods -A --no-headers 2>/dev/null | grep -c "Running\|Completed" || true)
+        echo "  pods: $READY/$TOTAL ready"
+        if [ "$TOTAL" -gt 0 ] && [ "$READY" -eq "$TOTAL" ]; then
           break
         fi
-        sleep 2
+        sleep 3
       done
 
       echo ""
