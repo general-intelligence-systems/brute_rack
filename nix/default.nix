@@ -38,7 +38,7 @@ let
       $K3D cluster create $CLUSTER \
         --wait \
         --timeout 120s \
-        --agents 1 \
+        --agents 0 \
         --k3s-arg "--disable=traefik@server:0"
 
       $KUBECTL wait --for=condition=Ready nodes --all --timeout=120s
