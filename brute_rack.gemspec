@@ -2,7 +2,7 @@
 
 Gem::Specification.new do |spec|
   spec.name          = "brute_rack"
-  spec.version       = "0.1.0"
+  spec.version       = "0.1.1"
   spec.authors       = ["Brute Contributors"]
   spec.summary       = "HTTP API for the Brute coding agent"
   spec.description   = "Rack app exposing the Brute agent over HTTP with " \
@@ -16,6 +16,6 @@ Gem::Specification.new do |spec|
   spec.require_paths = ["lib"]
 
   spec.add_dependency "brute", "~> 0.1"
-  spec.add_dependency "rack", ">= 3.0"
-  spec.add_dependency "async-http", ">= 0.75"
+  spec.add_dependency "rack", "~> 3.0"
+  spec.add_dependency "async-http", "~> 0.75"
 end
