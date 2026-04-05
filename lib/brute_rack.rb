@@ -13,10 +13,6 @@ module BruteRack
   module Endpoints
     HEADERS_JSON = BruteRack::HEADERS_JSON
   end
-
-  def self.config_ru_path
-    File.expand_path("../examples/config.ru", __dir__)
-  end
 end
 
 # Infrastructure

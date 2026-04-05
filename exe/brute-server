@@ -8,21 +8,9 @@
 #   brute-server examples/multi-agent/service.rb    # Run two agents
 #   brute-server /path/to/my/service.rb             # Run a custom config
 #
-# With async-service + falcon installed (recommended):
-#   Uses async-service for lifecycle management and Falcon for async HTTP.
-#
-# Without async-service (fallback):
-#   Uses rackup + WEBrick with examples/config.ru.
+# Requires async-service and falcon.
 
 config = ARGV.shift || File.expand_path("../examples/default/service.rb", __dir__)
 
-begin
-  require "async/service"
-  $stderr.puts "brute-server: #{config}"
-  exec("async-service", config, *ARGV)
-rescue LoadError
-  $stderr.puts "brute-server: async-service not found, falling back to rackup"
-  require "brute_rack"
-  require "rackup"
-  Rackup::Server.start(config: BruteRack.config_ru_path, Port: 9292)
-end
+$stderr.puts "brute-server: #{config}"
+exec("async-service", config, *ARGV)

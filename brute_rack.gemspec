@@ -10,14 +10,12 @@ Gem::Specification.new do |spec|
   spec.license       = "MIT"
   spec.required_ruby_version = ">= 3.2"
 
-  spec.files         = Dir["lib/**/*.rb", "exe/*", "config.ru"]
+  spec.files         = Dir["lib/**/*.rb", "exe/*"]
   spec.bindir        = "exe"
   spec.executables   = ["brute-server", "brute-client"]
   spec.require_paths = ["lib"]
 
   spec.add_dependency "brute", "~> 0.1"
   spec.add_dependency "rack", ">= 3.0"
-  spec.add_dependency "rackup", ">= 2.0"
-  spec.add_dependency "webrick", ">= 1.8"
   spec.add_dependency "async-http", ">= 0.75"
 end

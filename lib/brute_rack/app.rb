@@ -6,9 +6,8 @@ module BruteRack
   # Rack application implementing the OpenCode-compatible server API.
   # Routes requests by method + path to endpoint modules.
   #
-  #   # config.ru
   #   require "brute_rack"
-  #   run BruteRack::App.new
+  #   BruteRack::App.new
   #
   class App
     def self.not_found
