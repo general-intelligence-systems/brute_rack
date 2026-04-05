@@ -40,9 +40,12 @@ class BruteService < Async::Service::Managed::Service
       },
     )
 
-    server = Falcon::Server.new(Falcon::Server.middleware(app), @bound_endpoint)
-    instance.ready!
-    server.run
+    Async do |task|
+      server = Falcon::Server.new(Falcon::Server.middleware(app), @bound_endpoint)
+      server.run
+      instance.ready!
+      task.sleep # block forever — server runs in background fibers
+    end
   end
 end
 
