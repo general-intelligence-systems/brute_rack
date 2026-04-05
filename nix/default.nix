@@ -3,7 +3,8 @@
 # Provides:
 #   - Ruby + bundler for running the agent
 #   - k3d + kubectl + helm for local Kubernetes
-#   - Single `cluster` command: cluster {up,down,load,status,deploy,undeploy,logs}
+#   - kubectl wrapper that automatically uses the k3d kubeconfig
+#   - Single `cluster` command: cluster {up,down,load,status,deploy,undeploy,logs,forward}
 #
 # Usage as a flake input:
 #
@@ -16,11 +17,24 @@
 
 let
   clusterName = "brute";
+  kubeconfigPath = "/tmp/k3d-${clusterName}-kubeconfig.yaml";
+
+  # kubectl wrapper — automatically uses the k3d kubeconfig.
+  # No environment variables to set. No use-context. Just works.
+  kubectl = pkgs.writeShellScriptBin "kubectl" ''
+    if [ -f "${kubeconfigPath}" ]; then
+      exec env KUBECONFIG="${kubeconfigPath}" ${pkgs.kubectl}/bin/kubectl "$@"
+    else
+      echo "No k3d kubeconfig found. Run: cluster up" >&2
+      exit 1
+    fi
+  '';
 
   cluster = pkgs.writeShellScriptBin "cluster" ''
     K3D="${pkgs.k3d}/bin/k3d"
-    KUBECTL="${pkgs.kubectl}/bin/kubectl"
+    KUBECTL="env KUBECONFIG=${kubeconfigPath} ${pkgs.kubectl}/bin/kubectl"
     CLUSTER="${clusterName}"
+    KUBECONFIG_FILE="${kubeconfigPath}"
 
     cmd_up() {
       if ! command -v docker &> /dev/null || ! docker info &> /dev/null 2>&1; then
@@ -30,7 +44,8 @@ let
 
       if $K3D cluster list 2>/dev/null | grep -q "$CLUSTER"; then
         echo "Cluster '$CLUSTER' already exists"
-        $KUBECTL config use-context k3d-$CLUSTER
+        $K3D kubeconfig get $CLUSTER > "$KUBECONFIG_FILE" 2>/dev/null
+        echo "kubectl configured"
         exit 0
       fi
 
@@ -41,16 +56,16 @@ let
         --agents 0 \
         --k3s-arg "--disable=traefik@server:0"
 
+      $K3D kubeconfig get $CLUSTER > "$KUBECONFIG_FILE" 2>/dev/null
       $KUBECTL wait --for=condition=Ready nodes --all --timeout=120s
-      $KUBECTL config use-context k3d-$CLUSTER
+
       echo "Cluster '$CLUSTER' is ready"
-      echo ""
-      echo "To access services, use:"
-      echo "  kubectl port-forward svc/<name> 9292:80"
+      echo "kubectl is configured automatically"
     }
 
     cmd_down() {
       $K3D cluster delete $CLUSTER 2>/dev/null
+      rm -f "$KUBECONFIG_FILE"
       echo "Cluster '$CLUSTER' deleted"
     }
 
@@ -168,7 +183,7 @@ let
     pkgs.bash
     pkgs.docker
     pkgs.k3d
-    pkgs.kubectl
+    kubectl
     pkgs.kubernetes-helm
     cluster
   ];
@@ -177,9 +192,9 @@ let
     export BUNDLE_PATH=vendor/bundle
     bundle install --quiet 2>/dev/null
 
-    # Auto-connect kubectl to the brute k3d cluster if it's running
+    # Write kubeconfig if cluster is running
     if ${pkgs.k3d}/bin/k3d cluster list 2>/dev/null | grep -q "${clusterName}"; then
-      ${pkgs.kubectl}/bin/kubectl config use-context k3d-${clusterName} > /dev/null 2>&1
+      ${pkgs.k3d}/bin/k3d kubeconfig get ${clusterName} > ${kubeconfigPath} 2>/dev/null
       CLUSTER_STATUS="connected"
     else
       CLUSTER_STATUS="not running (run: cluster up)"
@@ -190,14 +205,13 @@ let
     echo ""
     echo "  Ruby:    $(ruby --version | cut -d' ' -f2)"
     echo "  k3d:     $(${pkgs.k3d}/bin/k3d version | head -1 | awk '{print $3}')"
-    echo "  kubectl: $(${pkgs.kubectl}/bin/kubectl version --client -o json 2>/dev/null | grep gitVersion | awk -F'"' '{print $4}')"
     echo "  cluster: $CLUSTER_STATUS"
     echo ""
-    echo "  cluster up|down|load|status|deploy|undeploy|logs|help"
+    echo "  cluster up|down|load|status|deploy|undeploy|logs|forward|help"
     echo ""
   '';
 
 in
 {
-  inherit shellPackages shellHook cluster clusterName;
+  inherit shellPackages shellHook cluster kubectl clusterName kubeconfigPath;
 }
