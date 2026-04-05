@@ -14,4 +14,4 @@ EXPOSE 9292
 ENV NOTIFY_LOG=/tmp/notify.log
 ENV BRUTE_CWD=/workspace
 
-CMD ["bundle", "exec", "async-service", "service.rb"]
+CMD ["bundle", "exec", "falcon", "host", "service.rb"]

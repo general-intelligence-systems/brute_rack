@@ -1,73 +1,43 @@
-#!/usr/bin/env async-service
+#!/usr/bin/env falcon-host
 # frozen_string_literal: true
 
 # Restricted Brute agent — read-only, no shell, no file mutations.
-# Suitable for research, code review, and analysis tasks.
 #
-#   async-service service.rb
+#   falcon host
+#   exe/brute-server examples/restricted/service.rb
 
 require "brute_rack"
-require "async/service"
-require "async/service/managed/environment"
-require "async/service/managed/service"
-require "async/http"
-require "falcon"
-
-class BruteService < Async::Service::Managed::Service
-  def start
-    super
-    @endpoint = Async::HTTP::Endpoint.parse("http://#{@evaluator.host}:#{@evaluator.port}")
-    @bound_endpoint = Sync { @endpoint.bound }
-  end
-
-  def stop
-    @bound_endpoint&.close
-    super
-  end
-
-  private def format_title(evaluator, server)
-    connections = server.respond_to?(:connection_count) ? " (#{server.connection_count} conn)" : ""
-    "#{self.name} [#{evaluator.host}:#{evaluator.port}]#{connections}"
-  end
-
-  def run(instance, evaluator)
-    app = BruteRack::App.new(
-      cwd: evaluator.cwd,
-      agent_options: {
-        tools: evaluator.tools,
-        reasoning: evaluator.reasoning,
-        compactor_opts: evaluator.compactor_opts,
-      },
-    )
-
-    Async do |task|
-      server = Falcon::Server.new(Falcon::Server.middleware(app), @bound_endpoint)
-      server.run
-      instance.ready!
-      task.sleep
-    end
-  end
-end
-
-container_policy Async::Service::Policy.new(maximum_failures: 5, window: 60)
+require "falcon/environment/rack"
 
 service "research" do
-  include Async::Service::Managed::Environment
+  include Falcon::Environment::Rack
 
-  def service_class = BruteService
-  def host = "0.0.0.0"
-  def port = 9292
-  def cwd = ENV.fetch("BRUTE_CWD", Dir.pwd)
+  count 1
+
+  endpoint do
+    Async::HTTP::Endpoint
+      .parse("http://0.0.0.0:#{port}")
+      .with(protocol: Async::HTTP::Protocol::HTTP1)
+  end
+
+  def port = ENV.fetch("PORT", 9292).to_i
+  def cwd = ENV.fetch("BRUTE_CWD", "/srv/research")
 
   def tools
     [Brute::Tools::FSRead, Brute::Tools::FSSearch, Brute::Tools::NetFetch, Brute::Tools::TodoRead, Brute::Tools::TodoWrite]
   end
 
-  def reasoning
-    { level: :high }
-  end
+  def reasoning = { level: :high }
+  def compactor_opts = { token_threshold: 50_000 }
 
-  def compactor_opts
-    { token_threshold: 50_000 }
+  def app
+    BruteRack::App.new(
+      cwd: cwd,
+      agent_options: {
+        tools: tools,
+        reasoning: reasoning,
+        compactor_opts: compactor_opts,
+      },
+    )
   end
 end

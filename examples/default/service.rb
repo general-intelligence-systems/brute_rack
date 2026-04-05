@@ -1,64 +1,40 @@
-#!/usr/bin/env async-service
+#!/usr/bin/env falcon-host
 # frozen_string_literal: true
 
 # Default Brute agent service — all tools, default settings.
 #
-#   async-service service.rb
+#   falcon host
 #   exe/brute-server
 
 require "brute_rack"
-require "async/service"
-require "async/service/managed/environment"
-require "async/service/managed/service"
-require "async/http"
-require "falcon"
-
-class BruteService < Async::Service::Managed::Service
-  def start
-    super
-    @endpoint = Async::HTTP::Endpoint.parse("http://#{@evaluator.host}:#{@evaluator.port}")
-    @bound_endpoint = Sync { @endpoint.bound }
-  end
-
-  def stop
-    @bound_endpoint&.close
-    super
-  end
-
-  private def format_title(evaluator, server)
-    connections = server.respond_to?(:connection_count) ? " (#{server.connection_count} conn)" : ""
-    "#{self.name} [#{evaluator.host}:#{evaluator.port}]#{connections}"
-  end
-
-  def run(instance, evaluator)
-    app = BruteRack::App.new(
-      cwd: evaluator.cwd,
-      agent_options: {
-        tools: evaluator.tools,
-        reasoning: evaluator.reasoning,
-        compactor_opts: evaluator.compactor_opts,
-      },
-    )
-
-    Async do |task|
-      server = Falcon::Server.new(Falcon::Server.middleware(app), @bound_endpoint)
-      server.run
-      instance.ready!
-      task.sleep # block forever — server runs in background fibers
-    end
-  end
-end
-
-container_policy Async::Service::Policy.new(maximum_failures: 5, window: 60)
+require "falcon/environment/rack"
 
 service "brute" do
-  include Async::Service::Managed::Environment
+  include Falcon::Environment::Rack
 
-  def service_class = BruteService
-  def host = "0.0.0.0"
-  def port = 9292
+  count 1
+
+  endpoint do
+    Async::HTTP::Endpoint
+      .parse("http://0.0.0.0:#{port}")
+      .with(protocol: Async::HTTP::Protocol::HTTP1)
+  end
+
+  def port = ENV.fetch("PORT", 9292).to_i
   def cwd = ENV.fetch("BRUTE_CWD", Dir.pwd)
   def tools = Brute::TOOLS
   def reasoning = {}
   def compactor_opts = {}
+
+  # Override the default app with our Rack app
+  def app
+    BruteRack::App.new(
+      cwd: cwd,
+      agent_options: {
+        tools: tools,
+        reasoning: reasoning,
+        compactor_opts: compactor_opts,
+      },
+    )
+  end
 end

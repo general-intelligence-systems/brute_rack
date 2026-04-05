@@ -15,4 +15,4 @@ ENV NOTIFY_LOG=/tmp/notify.log
 ENV BRUTE_READER_CWD=/workspace/docs
 ENV BRUTE_CODER_CWD=/workspace/project
 
-CMD ["bundle", "exec", "async-service", "service.rb"]
+CMD ["bundle", "exec", "falcon", "host", "service.rb"]

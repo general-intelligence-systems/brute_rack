@@ -5,7 +5,6 @@ source "https://rubygems.org"
 gem "brute"
 gem "brute_rack"
 gem "falcon"
-gem "async-service"
 
 # Local development:
 # gem "brute",      path: "../../../brute"
