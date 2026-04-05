@@ -4,6 +4,8 @@
 # CLI client for the Brute HTTP server.
 #
 # Usage:
+#   brute-client chat                    Interactive coding session
+#   brute-client chat "Fix the tests"    Start with a prompt
 #   brute-client health
 #   brute-client prompt "Fix the failing tests"
 #   brute-client prompt --session abc123 "Continue working"
@@ -39,6 +41,11 @@ class BruteClient
   def post(path, body: {})
     uri = URI.join(@base, path)
     Net::HTTP.post(uri, JSON.generate(body), "Content-Type" => "application/json").then { |r| handle(r) }
+  end
+
+  def post_raw(path, body: {})
+    uri = URI.join(@base, path)
+    Net::HTTP.post(uri, JSON.generate(body), "Content-Type" => "application/json")
   end
 
   def delete(path)
@@ -251,11 +258,55 @@ when "log"
   abort "Usage: brute-client log \"message\"" if message.empty?
   client.post("/log", body: { service: "cli", level: "info", message: message })
 
+when "chat"
+  session_id = SecureRandom.uuid
+  initial_prompt = ARGV.join(" ") unless ARGV.empty?
+
+  $stderr.puts "brute> connected to #{base_url} (session: #{session_id[0..7]})"
+  $stderr.puts
+
+  send_message = ->(text) {
+    response = client.post_raw("/session/#{session_id}/message", body: {
+      parts: [{ type: "text", text: text }],
+    })
+
+    case response.code.to_i
+    when 200..299
+      JSON.parse(response.body).then do |parsed|
+        if parsed["error"]
+          $stderr.puts "error: #{parsed["error"]}"
+        else
+          (parsed["parts"] || []).each do |part|
+            puts part["text"] if part["type"] == "text"
+          end
+        end
+      end
+    else
+      $stderr.puts "error #{response.code}: #{response.body[0..200]}"
+    end
+  }
+
+  if initial_prompt
+    send_message.call(initial_prompt)
+    puts
+  end
+
+  loop do
+    $stderr.print "brute> "
+    input = $stdin.gets&.chomp
+    break if input.nil? || input.strip == "exit"
+    next if input.strip.empty?
+    puts
+    send_message.call(input)
+    puts
+  end
+
 when nil, "help", "--help", "-h"
   puts <<~HELP
     Usage: brute-client <command> [args]
 
     Commands:
+      chat [prompt]                    Interactive coding session (REPL)
       health                          Server health check
       prompt [-s session] "message"   Send a prompt (blocking)
       stream "message"                Send a prompt (streaming)
