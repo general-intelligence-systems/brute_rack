@@ -12,7 +12,7 @@ Gem::Specification.new do |spec|
 
   spec.files         = Dir["lib/**/*.rb", "exe/*"]
   spec.bindir        = "exe"
-  spec.executables   = ["brute-server", "brute-client"]
+  spec.executables   = ["brute-server", "brute-server-demo", "brute-client"]
   spec.require_paths = ["lib"]
 
   spec.add_dependency "brute", "~> 0.1"
