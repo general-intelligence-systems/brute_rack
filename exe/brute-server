@@ -3,17 +3,18 @@
 
 # Start the Brute HTTP server.
 #
-#   brute-server                          # Run default examples/service.rb
-#   brute-server my_service.rb            # Run a custom service config
-#   brute-server examples/restricted.rb   # Run the restricted example
+#   brute-server                                    # Run examples/default/service.rb
+#   brute-server examples/restricted/service.rb     # Run the restricted example
+#   brute-server examples/multi-agent/service.rb    # Run two agents
+#   brute-server /path/to/my/service.rb             # Run a custom config
 #
-# With async-service installed (recommended):
-#   Uses async-service to manage the process lifecycle.
+# With async-service + falcon installed (recommended):
+#   Uses async-service for lifecycle management and Falcon for async HTTP.
 #
 # Without async-service (fallback):
 #   Uses rackup + WEBrick with examples/config.ru.
 
-config = ARGV.shift || File.expand_path("../examples/service.rb", __dir__)
+config = ARGV.shift || File.expand_path("../examples/default/service.rb", __dir__)
 
 begin
   require "async/service"
