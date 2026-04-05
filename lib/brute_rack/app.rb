@@ -11,9 +11,13 @@ module BruteRack
   #   run BruteRack::App.new
   #
   class App
-    HEADERS_JSON = {"content-type" => "application/json"}.freeze
-    NOT_FOUND = [404, HEADERS_JSON, ['{"error":"not found"}']].freeze
-    METHOD_NOT_ALLOWED = [405, HEADERS_JSON, ['{"error":"method not allowed"}']].freeze
+    def self.not_found
+      [404, {"content-type" => "application/json"}, ['{"error":"not found"}']]
+    end
+
+    def self.method_not_allowed
+      [405, {"content-type" => "application/json"}, ['{"error":"method not allowed"}']]
+    end
 
     def initialize(cwd: Dir.pwd)
       @cwd = cwd
@@ -31,7 +35,7 @@ module BruteRack
       when "POST"   then route_post(path, env)
       when "PATCH"  then route_patch(path, env)
       when "DELETE" then route_delete(path, env)
-      else METHOD_NOT_ALLOWED
+      else self.class.method_not_allowed
       end
     end
 
@@ -77,7 +81,7 @@ module BruteRack
       # Path & VCS
       when "/path"                      then Endpoints::PathVcs.path(env, **ctx)
       when "/vcs"                       then Endpoints::PathVcs.vcs(env, **ctx)
-      else NOT_FOUND
+      else self.class.not_found
       end
     end
 
@@ -107,7 +111,7 @@ module BruteRack
       # Logging
       when "/log"
         Endpoints::Logging.create(env, **ctx)
-      else NOT_FOUND
+      else self.class.not_found
       end
     end
 
@@ -118,7 +122,7 @@ module BruteRack
       case path
       when %r{\A/session/([^/]+)\z}
         Endpoints::Sessions.update(env, id: $1, **ctx)
-      else NOT_FOUND
+      else self.class.not_found
       end
     end
 
@@ -129,7 +133,7 @@ module BruteRack
       case path
       when %r{\A/session/([^/]+)\z}
         Endpoints::Sessions.delete(env, id: $1, **ctx)
-      else NOT_FOUND
+      else self.class.not_found
       end
     end
   end

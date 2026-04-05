@@ -1,13 +1,58 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
-# Convenience wrapper — starts Falcon with the brute_rack config.ru.
+# Start the Brute HTTP server.
 #
-#   brute-server                           # localhost:9292
-#   brute-server --count 4                 # 4 workers
-#   brute-server --bind http://0.0.0.0:80  # custom bind
+#   brute-server                              # localhost:9292
+#   brute-server --port 3000                  # custom port
+#   brute-server --host 0.0.0.0 --port 8080  # bind all interfaces
+#   brute-server --server falcon              # use Falcon (requires gem install falcon)
+#
+# Defaults to rackup (WEBrick). Use --server falcon for async/SSE streaming.
 
 require "brute_rack"
+require "optparse"
 
-config = BruteRack.config_ru_path
-exec("falcon", "serve", "--config", config, *ARGV)
+options = { host: "127.0.0.1", port: 9292, server: nil }
+
+OptionParser.new do |opts|
+  opts.banner = "Usage: brute-server [options]"
+  opts.on("-H", "--host HOST", "Hostname (default: 127.0.0.1)")  { |h| options[:host] = h }
+  opts.on("-p", "--port PORT", Integer, "Port (default: 9292)")   { |p| options[:port] = p }
+  opts.on("-s", "--server NAME", "Rack server (falcon, puma, webrick)") { |s| options[:server] = s }
+  opts.on("-v", "--version", "Show version") { puts "brute-server #{Brute::VERSION}"; exit }
+  opts.on("-h", "--help", "Show help")       { puts opts; exit }
+end.parse!
+
+config_ru = BruteRack.config_ru_path
+
+$stderr.puts "brute-server #{Brute::VERSION}"
+$stderr.puts "  Listening on http://#{options[:host]}:#{options[:port]}"
+$stderr.puts "  Config: #{config_ru}"
+$stderr.puts
+
+if options[:server]
+  # Use specified server via rackup
+  require "rackup"
+  Rackup::Server.start(
+    config: config_ru,
+    Host: options[:host],
+    Port: options[:port],
+    server: options[:server],
+  )
+else
+  # Default: try falcon, fall back to rackup/webrick
+  begin
+    require "falcon"
+    exec("falcon", "serve",
+      "--bind", "http://#{options[:host]}:#{options[:port]}",
+      "--config", config_ru)
+  rescue LoadError
+    require "rackup"
+    Rackup::Server.start(
+      config: config_ru,
+      Host: options[:host],
+      Port: options[:port],
+    )
+  end
+end
