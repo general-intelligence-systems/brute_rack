@@ -3,7 +3,7 @@
 
 # Two Brute agents on different ports with different capabilities.
 #
-#   falcon host
+#   falcon host service.rb
 #   exe/brute-server examples/multi-agent/service.rb
 
 require "brute_rack"
@@ -13,10 +13,11 @@ service "reader" do
   include Falcon::Environment::Rack
 
   count 1
+  port { 9292 }
 
   endpoint do
     Async::HTTP::Endpoint
-      .parse("http://0.0.0.0:9292")
+      .parse("http://0.0.0.0:#{port}")
       .with(protocol: Async::HTTP::Protocol::HTTP1)
   end
 
@@ -37,10 +38,11 @@ service "coder" do
   include Falcon::Environment::Rack
 
   count 1
+  port { 9293 }
 
   endpoint do
     Async::HTTP::Endpoint
-      .parse("http://0.0.0.0:9293")
+      .parse("http://0.0.0.0:#{port}")
       .with(protocol: Async::HTTP::Protocol::HTTP1)
   end
 

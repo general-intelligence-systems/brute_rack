@@ -3,7 +3,7 @@
 
 # Restricted Brute agent — read-only, no shell, no file mutations.
 #
-#   falcon host
+#   falcon host service.rb
 #   exe/brute-server examples/restricted/service.rb
 
 require "brute_rack"
@@ -13,6 +13,7 @@ service "research" do
   include Falcon::Environment::Rack
 
   count 1
+  port { ENV.fetch("PORT", 9292).to_i }
 
   endpoint do
     Async::HTTP::Endpoint
@@ -20,7 +21,6 @@ service "research" do
       .with(protocol: Async::HTTP::Protocol::HTTP1)
   end
 
-  def port = ENV.fetch("PORT", 9292).to_i
   def cwd = ENV.fetch("BRUTE_CWD", "/srv/research")
 
   def tools

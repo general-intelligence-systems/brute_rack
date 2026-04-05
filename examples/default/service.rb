@@ -3,7 +3,7 @@
 
 # Default Brute agent service — all tools, default settings.
 #
-#   falcon host
+#   falcon host service.rb
 #   exe/brute-server
 
 require "brute_rack"
@@ -13,6 +13,7 @@ service "brute" do
   include Falcon::Environment::Rack
 
   count 1
+  port { ENV.fetch("PORT", 9292).to_i }
 
   endpoint do
     Async::HTTP::Endpoint
@@ -20,13 +21,11 @@ service "brute" do
       .with(protocol: Async::HTTP::Protocol::HTTP1)
   end
 
-  def port = ENV.fetch("PORT", 9292).to_i
   def cwd = ENV.fetch("BRUTE_CWD", Dir.pwd)
   def tools = Brute::TOOLS
   def reasoning = {}
   def compactor_opts = {}
 
-  # Override the default app with our Rack app
   def app
     BruteRack::App.new(
       cwd: cwd,
