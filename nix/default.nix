@@ -195,7 +195,7 @@ let
 
     cmd_logs() {
       LABEL=''${1:-app}
-      $KUBECTL logs -l "$LABEL" --namespace=brute -f --all-containers
+      $KUBECTL logs -l "$LABEL" --namespace=brute -f --all-containers --tail=-1
     }
 
     cmd_forward() {
