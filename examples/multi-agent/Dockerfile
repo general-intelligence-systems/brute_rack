@@ -1,6 +1,6 @@
 FROM ruby:3.4-alpine
 
-RUN apk add --no-cache build-base git ripgrep bash
+RUN apk add --no-cache build-base git ripgrep bash openssl-dev
 
 WORKDIR /app
 
