@@ -54,7 +54,8 @@ let
         --wait \
         --timeout 120s \
         --agents 0 \
-        --k3s-arg "--disable=traefik@server:0"
+        --k3s-arg "--disable=traefik@server:0" \
+        --k3s-arg "--disable=metrics-server@server:0"
 
       $K3D kubeconfig get $CLUSTER > "$KUBECONFIG_FILE" 2>/dev/null
       $KUBECTL wait --for=condition=Ready nodes --all --timeout=120s
