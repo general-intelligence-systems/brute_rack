@@ -165,12 +165,21 @@ let
     export BUNDLE_PATH=vendor/bundle
     bundle install --quiet 2>/dev/null
 
+    # Auto-connect kubectl to the brute k3d cluster if it's running
+    if ${pkgs.k3d}/bin/k3d cluster list 2>/dev/null | grep -q "${clusterName}"; then
+      ${pkgs.kubectl}/bin/kubectl config use-context k3d-${clusterName} > /dev/null 2>&1
+      CLUSTER_STATUS="connected"
+    else
+      CLUSTER_STATUS="not running (run: cluster up)"
+    fi
+
     echo ""
     echo "Brute development environment"
     echo ""
     echo "  Ruby:    $(ruby --version | cut -d' ' -f2)"
     echo "  k3d:     $(${pkgs.k3d}/bin/k3d version | head -1 | awk '{print $3}')"
     echo "  kubectl: $(${pkgs.kubectl}/bin/kubectl version --client -o json 2>/dev/null | grep gitVersion | awk -F'"' '{print $4}')"
+    echo "  cluster: $CLUSTER_STATUS"
     echo ""
     echo "  cluster up|down|load|status|deploy|undeploy|logs|help"
     echo ""
