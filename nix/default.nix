@@ -58,8 +58,22 @@ let
         --k3s-arg "--disable=metrics-server@server:0"
 
       $K3D kubeconfig get $CLUSTER > "$KUBECONFIG_FILE" 2>/dev/null
-      $KUBECTL wait --for=condition=Ready nodes --all --timeout=120s
 
+      echo "Waiting for nodes..."
+      $KUBECTL wait --for=condition=Ready nodes --all --timeout=120s 2>/dev/null
+
+      echo "Waiting for system pods..."
+      while true; do
+        NOT_READY=$($KUBECTL get pods -A --no-headers 2>/dev/null | grep -v "Running\|Completed" || true)
+        if [ -z "$NOT_READY" ]; then
+          break
+        fi
+        sleep 2
+      done
+
+      echo ""
+      $KUBECTL get pods -A
+      echo ""
       echo "Cluster '$CLUSTER' is ready"
       echo "kubectl is configured automatically"
     }
