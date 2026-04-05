@@ -1,0 +1,13 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# Convenience wrapper — starts Falcon with the brute_rack config.ru.
+#
+#   brute-server                           # localhost:9292
+#   brute-server --count 4                 # 4 workers
+#   brute-server --bind http://0.0.0.0:80  # custom bind
+
+require "brute_rack"
+
+config = BruteRack.config_ru_path
+exec("falcon", "serve", "--config", config, *ARGV)
