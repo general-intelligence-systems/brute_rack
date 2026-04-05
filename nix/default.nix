@@ -3,12 +3,12 @@
 # Provides:
 #   - Ruby + bundler for running the agent
 #   - k3d + kubectl + helm for local Kubernetes
-#   - Convenience scripts: k3d-up, k3d-down, k3d-load, brute-deploy, brute-undeploy
-#   - Docker image building via dockerTools
+#   - Convenience scripts: cluster-up, cluster-down, cluster-load, cluster-status,
+#     cluster-deploy, cluster-undeploy, cluster-logs
 #
 # Usage as a flake input:
 #
-#   inputs.brute-nix.url = "path:../../nix";
+#   inputs.brute-nix.url = "github:general-intelligence-systems/brute_rack?dir=nix";
 #
 #   Then in outputs:
 #     let brute = brute-nix.lib.${system}; in { ... }
@@ -18,7 +18,7 @@
 let
   clusterName = "brute";
 
-  k3d-up = pkgs.writeShellScriptBin "k3d-up" ''
+  cluster-up = pkgs.writeShellScriptBin "cluster-up" ''
     if ! command -v docker &> /dev/null || ! docker info &> /dev/null 2>&1; then
       echo "error: Docker is not running" >&2
       exit 1
@@ -46,21 +46,21 @@ let
     echo "Cluster '${clusterName}' is ready"
   '';
 
-  k3d-down = pkgs.writeShellScriptBin "k3d-down" ''
+  cluster-down = pkgs.writeShellScriptBin "cluster-down" ''
     ${pkgs.k3d}/bin/k3d cluster delete ${clusterName} 2>/dev/null
     echo "Cluster '${clusterName}' deleted"
   '';
 
-  k3d-load = pkgs.writeShellScriptBin "k3d-load" ''
+  cluster-load = pkgs.writeShellScriptBin "cluster-load" ''
     if [ -z "$1" ]; then
-      echo "Usage: k3d-load <image:tag>"
+      echo "Usage: cluster-load <image:tag>"
       exit 1
     fi
     ${pkgs.k3d}/bin/k3d image import "$1" --cluster ${clusterName}
     echo "Loaded $1 into cluster '${clusterName}'"
   '';
 
-  k3d-status = pkgs.writeShellScriptBin "k3d-status" ''
+  cluster-status = pkgs.writeShellScriptBin "cluster-status" ''
     echo "=== Cluster ==="
     ${pkgs.k3d}/bin/k3d cluster list 2>/dev/null
     echo
@@ -71,11 +71,11 @@ let
     ${pkgs.kubectl}/bin/kubectl get pods -A 2>/dev/null || echo "(not running)"
   '';
 
-  brute-deploy = pkgs.writeShellScriptBin "brute-deploy" ''
+  cluster-deploy = pkgs.writeShellScriptBin "cluster-deploy" ''
     DEPLOYMENT=''${1:-deployment.yaml}
     if [ ! -f "$DEPLOYMENT" ]; then
       echo "error: $DEPLOYMENT not found" >&2
-      echo "Usage: brute-deploy [deployment.yaml]" >&2
+      echo "Usage: cluster-deploy [deployment.yaml]" >&2
       exit 1
     fi
 
@@ -100,7 +100,7 @@ let
     ${pkgs.kubectl}/bin/kubectl get svc
   '';
 
-  brute-undeploy = pkgs.writeShellScriptBin "brute-undeploy" ''
+  cluster-undeploy = pkgs.writeShellScriptBin "cluster-undeploy" ''
     DEPLOYMENT=''${1:-deployment.yaml}
     if [ ! -f "$DEPLOYMENT" ]; then
       echo "error: $DEPLOYMENT not found" >&2
@@ -110,7 +110,7 @@ let
     echo "Removed resources from $DEPLOYMENT"
   '';
 
-  brute-logs = pkgs.writeShellScriptBin "brute-logs" ''
+  cluster-logs = pkgs.writeShellScriptBin "cluster-logs" ''
     LABEL=''${1:-app=brute-agent}
     ${pkgs.kubectl}/bin/kubectl logs -l "$LABEL" -f --all-containers
   '';
@@ -126,13 +126,13 @@ let
     pkgs.k3d
     pkgs.kubectl
     pkgs.kubernetes-helm
-    k3d-up
-    k3d-down
-    k3d-load
-    k3d-status
-    brute-deploy
-    brute-undeploy
-    brute-logs
+    cluster-up
+    cluster-down
+    cluster-load
+    cluster-status
+    cluster-deploy
+    cluster-undeploy
+    cluster-logs
   ];
 
   shellHook = ''
@@ -146,13 +146,13 @@ let
     echo "  k3d:     $(${pkgs.k3d}/bin/k3d version | head -1 | awk '{print $3}')"
     echo "  kubectl: $(${pkgs.kubectl}/bin/kubectl version --client -o json 2>/dev/null | grep gitVersion | awk -F'"' '{print $4}')"
     echo ""
-    echo "  k3d-up          Create local k3d cluster"
-    echo "  k3d-down        Destroy local k3d cluster"
-    echo "  k3d-load IMG    Import Docker image into cluster"
-    echo "  k3d-status      Show cluster, nodes, and pods"
-    echo "  brute-deploy    Build, load, and apply deployment.yaml"
-    echo "  brute-undeploy  Remove deployed resources"
-    echo "  brute-logs      Tail pod logs"
+    echo "  cluster-up        Create local k3d cluster"
+    echo "  cluster-down      Destroy local k3d cluster"
+    echo "  cluster-load IMG  Import Docker image into cluster"
+    echo "  cluster-status    Show cluster, nodes, and pods"
+    echo "  cluster-deploy    Build, load, and apply deployment.yaml"
+    echo "  cluster-undeploy  Remove deployed resources"
+    echo "  cluster-logs      Tail pod logs"
     echo ""
   '';
 
@@ -161,12 +161,12 @@ in
   inherit
     shellPackages
     shellHook
-    k3d-up
-    k3d-down
-    k3d-load
-    k3d-status
-    brute-deploy
-    brute-undeploy
-    brute-logs
+    cluster-up
+    cluster-down
+    cluster-load
+    cluster-status
+    cluster-deploy
+    cluster-undeploy
+    cluster-logs
     clusterName;
 }
