@@ -7,3 +7,7 @@ Gemfile.lock
 /tmp/
 /vendor/bundle
 .gem/
+vendor/
+.direnv/
+flake.lock
+*.gem
