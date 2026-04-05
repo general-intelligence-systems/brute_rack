@@ -1,2 +1,9 @@
 Gemfile.lock
 *.swp
+*.gem
+/.bundle/
+/coverage/
+/pkg/
+/tmp/
+/vendor/bundle
+.gem/
