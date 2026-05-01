@@ -1,5 +1,7 @@
 # brute_rack
 
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/general-intelligence-systems/brute_rack)
+
 HTTP API for the [Brute](https://github.com/general-intelligence-systems/brute) coding agent. Rack app with JSON and SSE streaming endpoints. Deploy with [Falcon](https://github.com/socketry/falcon).
 
 ## Usage
