@@ -10,6 +10,7 @@ module BruteRack
   # Not frozen — WEBrick mutates response headers.
   HEADERS_JSON = {"content-type" => "application/json"}
 
+  # @namespace
   module Endpoints
     HEADERS_JSON = BruteRack::HEADERS_JSON
   end

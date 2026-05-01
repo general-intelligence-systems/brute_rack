@@ -4,10 +4,10 @@ require "open3"
 
 module BruteRack
   module Endpoints
-    # GET /find?pattern=<pat>       → search file contents (ripgrep)
-    # GET /find/file?query=<q>      → find files by name
-    # GET /file?path=<path>         → list directory
-    # GET /file/content?path=<p>    → read file content
+    # GET /find?pattern=pat         - search file contents (ripgrep)
+    # GET /find/file?query=q        - find files by name
+    # GET /file?path=path           - list directory
+    # GET /file/content?path=p      - read file content
     # GET /file/status              → git status
     module Files
       def self.find(env, cwd:, **)
