@@ -11,3 +11,10 @@ gem "bpmn"
 # Falcon requires native openssl — install separately when deploying:
 #   gem install falcon
 # gem "falcon", "~> 0.48"
+
+group :maintenance, optional: true do
+	gem "utopia-project"
+	gem "bake-gem"
+	gem "bake-modernize"
+	gem "bake-releases"
+end

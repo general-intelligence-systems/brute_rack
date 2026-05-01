@@ -8,7 +8,12 @@ Gem::Specification.new do |spec|
   spec.description   = "Rack app exposing the Brute agent over HTTP with " \
                         "JSON and SSE streaming endpoints. Deploy with Falcon."
   spec.license       = "MIT"
+  spec.homepage      = "https://github.com/general-intelligence-systems/brute_rack"
   spec.required_ruby_version = ">= 3.2"
+
+  spec.metadata = {
+    "documentation_uri" => "https://general-intelligence-systems.github.io/brute_rack/",
+  }
 
   spec.files         = Dir["lib/**/*.rb", "exe/*"]
   spec.bindir        = "exe"
